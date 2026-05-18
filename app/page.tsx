@@ -46,50 +46,65 @@ export default function TechnicalRider() {
             <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">1</span>
             Stage Plot
           </h2>
-          <div className="relative aspect-[16/9] bg-white border-4 border-gray-200 rounded-xl shadow-inner p-4 md:p-8 overflow-hidden">
+          {/* Mobile: stacked rows. Desktop: 16/9 grid */}
+          <div className="bg-white border-4 border-gray-200 rounded-xl shadow-inner overflow-hidden">
 
-            {/* Stage Designations */}
-            <div className="absolute top-4 left-4 text-xs font-bold text-gray-400">UPSTAGE RIGHT (USR)</div>
-            <div className="absolute top-4 right-4 text-xs font-bold text-gray-400">UPSTAGE LEFT (USL)</div>
-            <div className="absolute bottom-4 left-4 text-xs font-bold text-gray-400">DOWNSTAGE RIGHT (DSR)</div>
-            <div className="absolute bottom-4 right-4 text-xs font-bold text-gray-400">DOWNSTAGE LEFT (DSL)</div>
+            {/* Direction labels row */}
+            <div className="flex justify-between px-3 pt-2 pb-1">
+              <span className="text-[10px] font-bold text-gray-400">USR</span>
+              <span className="text-[10px] font-bold text-gray-500 tracking-widest">↑ UPSTAGE</span>
+              <span className="text-[10px] font-bold text-gray-400">USL</span>
+            </div>
 
-            <div className="grid grid-cols-3 grid-rows-2 h-full gap-4 text-center">
-              {/* Backline */}
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg">
-                <p className="font-bold">MATT</p>
-                <p className="text-xs">Keys + BGV (Mix 4)</p>
+            {/* Backline row */}
+            <div className="grid grid-cols-3 gap-2 px-3 pb-2">
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
+                <p className="font-bold text-sm">MATT</p>
+                <p className="text-xs text-gray-600">Keys + BGV</p>
+                <p className="text-[10px] text-gray-500">Mix 4</p>
                 <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
               </div>
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-100 bg-gray-50 rounded-lg">
-                <p className="font-bold uppercase">Bill (Drums)</p>
-                <p className="text-xs">Mix 6</p>
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg py-3 px-1 text-center">
+                <p className="font-bold text-sm uppercase">Bill</p>
+                <p className="text-xs text-gray-600">Drums</p>
+                <p className="text-[10px] text-gray-500">Mix 6</p>
               </div>
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg">
-                <p className="font-bold uppercase">Terry</p>
-                <p className="text-xs">Bass + BGV (Mix 5)</p>
-                <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
-              </div>
-
-              {/* Frontline */}
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg">
-                <p className="font-bold uppercase">Horns</p>
-                <p className="text-xs">Sax &amp; Trumpet (Mix 3)</p>
-              </div>
-              <div className="flex flex-col items-center justify-center border-2 border-black bg-gray-900 text-white rounded-lg shadow-xl scale-110 z-10">
-                <p className="font-bold uppercase">Rachel</p>
-                <p className="text-xs">Lead Vox (Mix 1)</p>
-                <p className="text-[10px] opacity-70">Straight Stand</p>
-              </div>
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg">
-                <p className="font-bold uppercase">Graham</p>
-                <p className="text-xs">Gtr + BGV (Mix 2)</p>
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
+                <p className="font-bold text-sm uppercase">Terry</p>
+                <p className="text-xs text-gray-600">Bass + BGV</p>
+                <p className="text-[10px] text-gray-500">Mix 5</p>
                 <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
               </div>
             </div>
 
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white px-8 py-1 border-t-4 border-black font-black uppercase tracking-widest text-sm">
-              Audience / FOH
+            {/* Divider */}
+            <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
+
+            {/* Frontline row */}
+            <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
+                <p className="font-bold text-sm uppercase">Horns</p>
+                <p className="text-xs text-gray-600">Sax &amp; Tpt</p>
+                <p className="text-[10px] text-gray-500">Mix 3</p>
+              </div>
+              <div className="flex flex-col items-center justify-center border-2 border-black bg-gray-900 text-white rounded-lg py-3 px-1 text-center shadow-lg">
+                <p className="font-bold text-sm uppercase">Rachel</p>
+                <p className="text-xs opacity-80">Lead Vox</p>
+                <p className="text-[10px] opacity-60">Mix 1 · Straight</p>
+              </div>
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
+                <p className="font-bold text-sm uppercase">Graham</p>
+                <p className="text-xs text-gray-600">Gtr + BGV</p>
+                <p className="text-[10px] text-gray-500">Mix 2</p>
+                <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
+              </div>
+            </div>
+
+            {/* Direction labels row */}
+            <div className="flex justify-between px-3 pb-2 pt-1">
+              <span className="text-[10px] font-bold text-gray-400">DSR</span>
+              <span className="text-[10px] font-bold text-gray-500 tracking-widest">↓ AUDIENCE / FOH</span>
+              <span className="text-[10px] font-bold text-gray-400">DSL</span>
             </div>
           </div>
         </section>
