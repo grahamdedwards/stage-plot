@@ -58,23 +58,20 @@ export default function TechnicalRider() {
 
             {/* Backline row */}
             <div className="grid grid-cols-3 gap-2 px-3 pb-2">
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
-                <p className="font-bold text-sm">MATT</p>
-                <p className="text-xs text-gray-600">Keys + BGV</p>
-                <p className="text-[10px] text-gray-500">Mix 4</p>
-                <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
-              </div>
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg py-3 px-1 text-center">
-                <p className="font-bold text-sm uppercase">Bill</p>
-                <p className="text-xs text-gray-600">Drums</p>
-                <p className="text-[10px] text-gray-500">Mix 6</p>
-              </div>
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
-                <p className="font-bold text-sm uppercase">Terry</p>
-                <p className="text-xs text-gray-600">Bass + BGV</p>
-                <p className="text-[10px] text-gray-500">Mix 5</p>
-                <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
-              </div>
+              {[
+                { name: "MATT", sub: "Keys + BGV", mix: "Mix 4", power: true },
+                { name: "BILL", sub: "Drums", mix: "Mix 6", power: false },
+                { name: "TERRY", sub: "Bass + BGV", mix: "Mix 5", power: true },
+              ].map((p) => (
+                <div key={p.name} className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
+                  <p className="font-bold text-sm leading-tight">{p.name}</p>
+                  <p className="text-[11px] text-gray-600 leading-tight">{p.sub}</p>
+                  <p className="text-[10px] text-gray-400">{p.mix}</p>
+                  <div className="h-5 flex items-center justify-center">
+                    {p.power && <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded">POWER</span>}
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Divider */}
@@ -82,21 +79,25 @@ export default function TechnicalRider() {
 
             {/* Frontline row */}
             <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
-                <p className="font-bold text-sm uppercase">Horns</p>
-                <p className="text-xs text-gray-600">Sax &amp; Tpt</p>
-                <p className="text-[10px] text-gray-500">Mix 3</p>
+              <div className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
+                <p className="font-bold text-sm leading-tight">HORNS</p>
+                <p className="text-[11px] text-gray-600 leading-tight">Sax &amp; Tpt</p>
+                <p className="text-[10px] text-gray-400">Mix 3</p>
+                <div className="h-5" />
               </div>
-              <div className="flex flex-col items-center justify-center border-2 border-black bg-gray-900 text-white rounded-lg py-3 px-1 text-center shadow-lg">
-                <p className="font-bold text-sm uppercase">Rachel</p>
-                <p className="text-xs opacity-80">Lead Vox</p>
-                <p className="text-[10px] opacity-60">Mix 1 · Straight</p>
+              <div className="flex flex-col items-center border-2 border-black bg-gray-900 text-white rounded-lg p-2 text-center gap-0.5 shadow-lg">
+                <p className="font-bold text-sm leading-tight">RACHEL</p>
+                <p className="text-[11px] opacity-80 leading-tight">Lead Vox</p>
+                <p className="text-[10px] opacity-60">Mix 1</p>
+                <p className="text-[9px] opacity-50">Straight Stand</p>
               </div>
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg py-3 px-1 text-center">
-                <p className="font-bold text-sm uppercase">Graham</p>
-                <p className="text-xs text-gray-600">Gtr + BGV</p>
-                <p className="text-[10px] text-gray-500">Mix 2</p>
-                <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
+              <div className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
+                <p className="font-bold text-sm leading-tight">GRAHAM</p>
+                <p className="text-[11px] text-gray-600 leading-tight">Gtr + BGV</p>
+                <p className="text-[10px] text-gray-400">Mix 2</p>
+                <div className="h-5 flex items-center justify-center">
+                  <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded">POWER</span>
+                </div>
               </div>
             </div>
 
