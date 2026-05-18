@@ -22,8 +22,10 @@ const inputs = [
 const monitors = [
   { mix: 1, name: "Rachel (DSC)", needs: "Lead Vox only" },
   { mix: 2, name: "Graham (DSL)", needs: "Lead Vox, BGVs, Keys — no guitar, bass, or drums" },
-  { mix: 3, name: "Matt / Horns (USR)", needs: "Matt BGV (Priority), Lead Vox, BGVs, Keys, Guitar (light) — no bass or drums" },
-  { mix: 4, name: "Bill / Drums (USC)", needs: "Kick, Bass, Lead Vox (heavy), Keys (light), Guitar (light) — no other drums" },
+  { mix: 3, name: "Horns (DSR)", needs: "Lead Vox, BGVs, Keys — no bass or drums" },
+  { mix: 4, name: "Matt (USR)", needs: "Matt BGV (Priority), Lead Vox, BGVs, Keys, Guitar (light) — no bass or drums" },
+  { mix: 5, name: "Terry (USL)", needs: "Lead Vox, BGVs, Bass (light), Keys (light) — no drums or guitar" },
+  { mix: 6, name: "Bill / Drums (USC)", needs: "Lead Vox (heavy), Kick, Bass, Keys (light), Guitar (light) — no other drums" },
 ];
 
 export default function TechnicalRider() {
@@ -56,16 +58,16 @@ export default function TechnicalRider() {
               {/* Backline */}
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg">
                 <p className="font-bold">MATT</p>
-                <p className="text-xs">Keys + BGV (Mix 3)</p>
+                <p className="text-xs">Keys + BGV (Mix 4)</p>
                 <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
               </div>
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-100 bg-gray-50 rounded-lg">
                 <p className="font-bold uppercase">Bill (Drums)</p>
-                <p className="text-xs">Mix 4</p>
+                <p className="text-xs">Mix 6</p>
               </div>
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg">
                 <p className="font-bold uppercase">Terry</p>
-                <p className="text-xs">Bass + BGV (Mix 2)</p>
+                <p className="text-xs">Bass + BGV (Mix 5)</p>
                 <div className="mt-1 px-2 py-0.5 bg-yellow-400 text-[10px] font-bold rounded">POWER</div>
               </div>
 
