@@ -20,10 +20,10 @@ const inputs = [
 ];
 
 const monitors = [
-  { mix: 1, name: "Rachel (DSC)", needs: "Lead Vox (Priority), Keys, Guitar" },
-  { mix: 2, name: "Stage Left (Graham/Terry)", needs: "Guitar, Bass, BGVs, Lead Vox" },
-  { mix: 3, name: "Stage Right (Matt/Horns)", needs: "Keys (Priority), Horns, BGVs, Lead Vox" },
-  { mix: 4, name: "Drums (Bill)", needs: "Kick, Snare, Bass, Lead Vox" },
+  { mix: 1, name: "Rachel (DSC)", needs: "Lead Vox only" },
+  { mix: 2, name: "Graham (DSL)", needs: "Lead Vox, BGVs, Keys — no guitar, bass, or drums" },
+  { mix: 3, name: "Matt / Horns (USR)", needs: "Matt BGV (Priority), Lead Vox, BGVs, Keys, Guitar (light) — no bass or drums" },
+  { mix: 4, name: "Bill / Drums (USC)", needs: "Kick, Bass, Lead Vox (heavy), Keys (light), Guitar (light) — no other drums" },
 ];
 
 export default function TechnicalRider() {
@@ -33,8 +33,9 @@ export default function TechnicalRider() {
 
         {/* Header */}
         <header className="text-center border-b pb-8">
-          <h1 className="text-4xl font-black tracking-tight uppercase">Technical Rider</h1>
-          <p className="text-xl text-gray-500 mt-2">7-Piece Band | Stage Plot &amp; Input List</p>
+          <h1 className="text-4xl font-black tracking-tight uppercase">Loosely Covered</h1>
+          <p className="text-lg font-semibold text-gray-700 mt-1 uppercase tracking-wide">Technical Rider</p>
+          <p className="text-xl text-gray-500 mt-1">7-Piece Band | Stage Plot &amp; Input List</p>
         </header>
 
         {/* Visual Stage Plot */}
