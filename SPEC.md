@@ -123,10 +123,14 @@ Not building until Graham validates the use case through personal bands + Bohemi
 ## Roadmap / Ideas
 
 ### Near-term (easy wins)
-- [ ] Move data to a config file (`band.config.ts`) — separate from layout code
-- [ ] PDF export (browser print stylesheet or Puppeteer)
+- [x] Config-driven architecture — band data in `lib/bands/`, page is pure renderer
+- [x] PDF/print with section selector
+- [x] Setup/Config UI — editable tabs, localStorage, shareable URL
+- [x] Google Sheet setlist import
+- [x] Extended position types (MSR/MSC/MSL, PIT, FOH, OTHER)
 - [ ] Instrument icons on stage plot cells (guitar, keys, drums, mic, horn)
 - [ ] Multiple lineup support (e.g., full band vs. acoustic trio)
+- [ ] JSON export/import (save/load show files)
 
 ### Medium-term (product features)
 - [ ] Web form — band enters their info, gets a URL (no code required)
