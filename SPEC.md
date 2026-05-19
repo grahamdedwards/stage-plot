@@ -69,6 +69,40 @@ Extend to a 3×3 grid for 9-piece bands by adding a mid row.
 
 ---
 
+## Template Library (Planned — not built)
+
+Templates are opinionated starting points — pre-filled stage positions, input counts, mic types, monitor mix count — with placeholder names ("Actor 1", "Lead Vox", "Trumpet 1"). Engineer fills in real names and tweaks for the specific show.
+
+| Template | Use Case |
+|---|---|
+| **Band Only** | Standard rock/pop band — drums, bass, keys, guitars, vox |
+| **Brass Band** | Horn-heavy, minimal rhythm section |
+| **Orchestra** | Strings + winds + brass + conductor, minimal PA vox |
+| **Choir** | Massed voices, minimal instruments |
+| **Actor + Band** | Pit-style band + lead actor mics, spoken word + song |
+| **Actor Heavy** | Many individual actor mics, minimal band, theater config |
+| **Big-3** | Bohemian-specific mega-production — large cast, full orchestra, multiple areas. Composition TBD with Graham. |
+
+### Show Library / Multi-Show UX (Planned)
+
+The ontology:
+```
+Organization (e.g. Bohemian Club)
+  └── Season (Fall-25, Spring-26, Encampment-26, Jinks-26)
+        └── Show (date + venue)
+              └── Rider (stage plot, inputs, monitors, setlist)
+```
+
+- **Show library in localStorage** — save/load multiple named shows from a dropdown in the header. Keyed by season + show name.
+- **JSON export/import** — "Save Show File" downloads `.json`; "Load Show File" imports it. PDF = pretty archive; JSON = editable record.
+- **New Show wizard** — 3 steps: pick template → update date/venue/names → done.
+- Per-engineer views within a shared org structure (future, needs backend).
+
+### Decision Gate
+Not building until Graham validates the use case through personal bands + Bohemian Club shows. Current tool (localStorage + shareable URL + PDF print) serves immediate needs. Template/library layer added when the iteration loop proves the value.
+
+---
+
 ## Roadmap / Ideas
 
 ### Near-term (easy wins)
