@@ -24,3 +24,99 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ─── Print Styles ─────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide UI chrome */
+  .sticky,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Hide unchecked sections */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset page background */
+  body {
+    background: white;
+    color: black;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* US Letter formatting */
+  @page {
+    size: letter;
+    margin: 0.5in;
+  }
+
+  /* Remove shadows and unnecessary decoration */
+  * {
+    box-shadow: none !important;
+  }
+
+  /* Keep header visible */
+  header {
+    page-break-after: avoid;
+  }
+
+  /* Page breaks between major sections */
+  section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Keep tables together when possible */
+  table {
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* B&W friendly: neutralize colored backgrounds */
+  .bg-blue-50\/30,
+  .bg-yellow-50 {
+    background: #f5f5f5 !important;
+  }
+
+  .bg-yellow-400 {
+    background: #d4d4d4 !important;
+    color: black !important;
+  }
+
+  .bg-yellow-100 {
+    background: #e5e5e5 !important;
+    color: black !important;
+  }
+
+  .border-yellow-200 {
+    border-color: #d4d4d4 !important;
+  }
+
+  /* Singer color badges: grayscale-friendly */
+  .bg-blue-100,
+  .bg-purple-100,
+  .bg-green-100,
+  .bg-orange-100,
+  .bg-pink-100,
+  .bg-teal-100 {
+    background: #e5e5e5 !important;
+  }
+  .text-blue-800,
+  .text-purple-800,
+  .text-green-800,
+  .text-orange-800,
+  .text-pink-800,
+  .text-teal-800 {
+    color: black !important;
+  }
+
+  /* Featured stage slots */
+  .bg-gray-900 {
+    background: #333 !important;
+  }
+}

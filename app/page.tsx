@@ -18,6 +18,7 @@ const fallbackBand = getBand();
 // ─── Config shape stored in localStorage / URL ─────────────────────────────
 interface AppConfig {
   showInfo: { bandName: string; eventDate: string; venue: string };
+  lineup?: string;
   stagePlot: StageSlot[];
   inputs: InputChannel[];
   monitors: MonitorMix[];
@@ -28,6 +29,7 @@ interface AppConfig {
 function bandToConfig(b: BandConfig): AppConfig {
   return {
     showInfo: { bandName: b.name, eventDate: '', venue: '' },
+    lineup: b.lineup,
     stagePlot: b.stagePlot.map((s) => ({ ...s })),
     inputs: b.inputs.map((i) => ({ ...i })),
     monitors: b.monitors.map((m) => ({ ...m })),
@@ -40,7 +42,7 @@ function configToBand(c: AppConfig): BandConfig {
   return {
     slug: 'custom',
     name: c.showInfo.bandName || 'Untitled',
-    lineup: `${c.stagePlot.length}-Piece`,
+    lineup: c.lineup || `${c.stagePlot.length}-Piece Band`,
     stagePlot: c.stagePlot,
     inputs: c.inputs,
     monitors: c.monitors,
@@ -91,6 +93,14 @@ export default function Page() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printSections, setPrintSections] = useState({
+    stagePlot: true,
+    inputList: true,
+    monitorMixes: true,
+    notes: true,
+    setlist: true,
+  });
 
   // ── Load config: URL param > localStorage > fallback ──────────────────
   useEffect(() => {
@@ -174,6 +184,14 @@ export default function Page() {
           >
             Setup
           </button>
+          {tab === 'show' && (
+            <button
+              onClick={() => setShowPrintModal(true)}
+              className="px-4 py-2 text-xs font-bold bg-white text-black border border-black rounded hover:bg-gray-100 transition-colors whitespace-nowrap print:hidden"
+            >
+              Print / Save PDF
+            </button>
+          )}
           <button
             onClick={handleCopyLink}
             className="px-4 py-2 mr-2 text-xs font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors whitespace-nowrap"
@@ -185,9 +203,57 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' ? (
-        <ShowTab band={band} />
+        <ShowTab band={band} printSections={printSections} showInfo={config.showInfo} />
       ) : (
         <SetupTab config={config} updateConfig={updateConfig} />
+      )}
+
+      {/* ── Print Modal ─────────────────────────────────────────────── */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print:hidden">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-bold mb-4">Print / Save PDF</h3>
+            <p className="text-sm text-gray-500 mb-4">Select sections to include:</p>
+            <div className="space-y-3">
+              {([
+                ['stagePlot', 'Stage Plot'],
+                ['inputList', 'Input List'],
+                ['monitorMixes', 'Monitor Mixes'],
+                ['notes', 'Notes'],
+                ['setlist', 'Setlist / Run Order'],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={printSections[key]}
+                    onChange={(e) =>
+                      setPrintSections((prev) => ({ ...prev, [key]: e.target.checked }))
+                    }
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm font-medium">{label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowPrintModal(false);
+                  setTimeout(() => window.print(), 100);
+                }}
+                className="flex-1 px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+              >
+                Print
+              </button>
+              <button
+                onClick={() => setShowPrintModal(false)}
+                className="flex-1 px-4 py-2 text-sm font-bold bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors border border-gray-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -271,7 +337,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
   );
 }
 
-function ShowTab({ band }: { band: BandConfig }) {
+function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string } }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -285,11 +351,15 @@ function ShowTab({ band }: { band: BandConfig }) {
       <div className="max-w-4xl mx-auto space-y-12">
         <header className="text-center border-b pb-8">
           <h1 className="text-4xl font-black tracking-tight uppercase">{band.name}</h1>
-          <p className="text-lg font-semibold text-gray-700 mt-1 uppercase tracking-wide">Technical Rider</p>
-          <p className="text-xl text-gray-500 mt-1">{band.lineup} | Stage Plot &amp; Input List</p>
+          {(showInfo.venue || showInfo.eventDate) && (
+            <p className="text-lg font-semibold text-gray-700 mt-1">
+              {showInfo.venue}{showInfo.venue && showInfo.eventDate ? ' · ' : ''}{showInfo.eventDate}
+            </p>
+          )}
+          <p className="text-sm text-gray-400 mt-1 uppercase tracking-wide">{band.lineup}</p>
         </header>
 
-        <section>
+        <section className={printSections.stagePlot ? '' : 'no-print'}>
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
             <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">1</span>
             Stage Plot
@@ -297,7 +367,7 @@ function ShowTab({ band }: { band: BandConfig }) {
           <StagePlotView band={band} />
         </section>
 
-        <section>
+        <section className={printSections.inputList ? '' : 'no-print'}>
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
             <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">2</span>
             Input List
@@ -328,8 +398,8 @@ function ShowTab({ band }: { band: BandConfig }) {
           </div>
         </section>
 
-        <section className="grid md:grid-cols-2 gap-8">
-          <div>
+        <section className={`grid md:grid-cols-2 gap-8 ${!printSections.monitorMixes && !printSections.notes ? 'no-print' : ''}`}>
+          <div className={printSections.monitorMixes ? '' : 'no-print'}>
             <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
               <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">3</span>
               Monitor Mixes
@@ -346,7 +416,7 @@ function ShowTab({ band }: { band: BandConfig }) {
             </div>
           </div>
 
-          <div>
+          <div className={printSections.notes ? '' : 'no-print'}>
             <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
               <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">4</span>
               Notes
@@ -360,7 +430,7 @@ function ShowTab({ band }: { band: BandConfig }) {
         </section>
 
         {band.setlist && band.setlist.length > 0 && (
-          <section>
+          <section className={printSections.setlist ? '' : 'no-print'}>
             <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
               <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">5</span>
               Run Order / Setlist
