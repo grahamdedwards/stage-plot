@@ -1,113 +1,114 @@
-import React from 'react';
+import { getBand } from '@/lib/bands';
+import type { StagePosition, BandConfig } from '@/lib/types';
 
-const inputs = [
-  { ch: 1, inst: "Kick", mic: "Beta 52 / D6", stand: "Short Boom", notes: "" },
-  { ch: 2, inst: "Snare", mic: "SM57", stand: "Short Boom", notes: "" },
-  { ch: 3, inst: "Hi-Hat", mic: "Condenser", stand: "Small Boom", notes: "" },
-  { ch: 4, inst: "Rack Tom", mic: "e604 / Clip", stand: "N/A", notes: "" },
-  { ch: 5, inst: "Floor Tom", mic: "e604 / Clip", stand: "N/A", notes: "" },
-  { ch: 6, inst: "OH L", mic: "Condenser", stand: "Tall Boom", notes: "" },
-  { ch: 7, inst: "OH R", mic: "Condenser", stand: "Tall Boom", notes: "" },
-  { ch: 8, inst: "Bass", mic: "DI", stand: "N/A", notes: "Terry - USL" },
-  { ch: 9, inst: "Keys (Nord)", mic: "DI (Mono)", stand: "N/A", notes: "Matt - USR" },
-  { ch: 10, inst: "Guitar Amp", mic: "SM57 / e906", stand: "Short Boom", notes: "Graham - DSL" },
-  { ch: 11, inst: "Sax", mic: "SM57 / House", stand: "Tall Boom", notes: "Chris - DSR" },
-  { ch: 12, inst: "Trumpet", mic: "SM57 / House", stand: "Tall Boom", notes: "Konstantins - DSR" },
-  { ch: 13, inst: "Lead Vox", mic: "Beta 58", stand: "STRAIGHT", notes: "Rachel - DSC" },
-  { ch: 14, inst: "BGV 1", mic: "SM58", stand: "BOOM", notes: "Graham - DSL" },
-  { ch: 15, inst: "BGV 2", mic: "SM58", stand: "BOOM", notes: "Matt - USR" },
-  { ch: 16, inst: "BGV 3", mic: "SM58", stand: "BOOM", notes: "Terry - USL" },
-];
+const POSITION_ORDER: StagePosition[] = ['USR', 'USC', 'USL', 'DSR', 'DSC', 'DSL'];
 
-const monitors = [
-  { mix: 1, name: "Rachel (DSC)", needs: "Lead Vox only" },
-  { mix: 2, name: "Graham (DSL)", needs: "Lead Vox, BGVs, Keys — no guitar, bass, or drums" },
-  { mix: 3, name: "Horns (DSR)", needs: "Lead Vox, BGVs, Keys — no bass or drums" },
-  { mix: 4, name: "Matt (USR)", needs: "Matt BGV (Priority), Lead Vox, BGVs, Keys, Guitar (light) — no bass or drums" },
-  { mix: 5, name: "Terry (USL)", needs: "Lead Vox, BGVs, Bass (light), Keys (light) — no drums or guitar" },
-  { mix: 6, name: "Bill / Drums (USC)", needs: "Lead Vox (heavy), Kick, Bass, Keys (light), Guitar (light) — no other drums" },
-];
+function StagePlot({ band }: { band: BandConfig }) {
+  const slotMap = Object.fromEntries(band.stagePlot.map((s) => [s.pos, s]));
+
+  return (
+    <div className="bg-white border-4 border-gray-200 rounded-xl shadow-inner overflow-hidden">
+      {/* Upstage label */}
+      <div className="flex justify-between px-3 pt-2 pb-1">
+        <span className="text-[10px] font-bold text-gray-400">USR</span>
+        <span className="text-[10px] font-bold text-gray-500 tracking-widest">↑ UPSTAGE</span>
+        <span className="text-[10px] font-bold text-gray-400">USL</span>
+      </div>
+
+      {/* Backline row */}
+      <div className="grid grid-cols-3 gap-2 px-3 pb-2">
+        {(['USR', 'USC', 'USL'] as StagePosition[]).map((pos) => {
+          const slot = slotMap[pos];
+          return (
+            <div key={pos} className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
+              {slot ? (
+                <>
+                  <p className="font-bold text-sm leading-tight uppercase">{slot.name}</p>
+                  <p className="text-[11px] text-gray-600 leading-tight">{slot.role}</p>
+                  <p className="text-[10px] text-gray-400">Mix {slot.mix}</p>
+                </>
+              ) : (
+                <p className="text-[10px] text-gray-300 italic">empty</p>
+              )}
+              <div className="h-5 flex items-center justify-center">
+                {slot?.power && (
+                  <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded">POWER</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Divider */}
+      <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
+
+      {/* Frontline row */}
+      <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
+        {(['DSR', 'DSC', 'DSL'] as StagePosition[]).map((pos) => {
+          const slot = slotMap[pos];
+          const isFeatured = slot?.featured;
+          return (
+            <div
+              key={pos}
+              className={`flex flex-col items-center rounded-lg p-2 text-center gap-0.5 border-2 ${
+                isFeatured
+                  ? 'border-black bg-gray-900 text-white shadow-lg'
+                  : 'border-dashed border-blue-100 bg-blue-50/30'
+              }`}
+            >
+              {slot ? (
+                <>
+                  <p className={`font-bold text-sm leading-tight uppercase ${isFeatured ? '' : ''}`}>{slot.name}</p>
+                  <p className={`text-[11px] leading-tight ${isFeatured ? 'opacity-80' : 'text-gray-600'}`}>{slot.role}</p>
+                  <p className={`text-[10px] ${isFeatured ? 'opacity-60' : 'text-gray-400'}`}>Mix {slot.mix}</p>
+                </>
+              ) : (
+                <p className="text-[10px] text-gray-300 italic">empty</p>
+              )}
+              <div className="h-5 flex items-center justify-center">
+                {slot?.power && (
+                  <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded text-black">POWER</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Downstage / FOH label */}
+      <div className="flex justify-between px-3 pb-2 pt-1">
+        <span className="text-[10px] font-bold text-gray-400">DSR</span>
+        <span className="text-[10px] font-bold text-gray-500 tracking-widest">↓ AUDIENCE / FOH</span>
+        <span className="text-[10px] font-bold text-gray-400">DSL</span>
+      </div>
+    </div>
+  );
+}
 
 export default function TechnicalRider() {
+  // In a future version, slug comes from searchParams (?band=loosely-covered)
+  // For now, always loads the default band
+  const band = getBand();
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans text-gray-900">
       <div className="max-w-4xl mx-auto space-y-12">
 
         {/* Header */}
         <header className="text-center border-b pb-8">
-          <h1 className="text-4xl font-black tracking-tight uppercase">Loosely Covered</h1>
+          <h1 className="text-4xl font-black tracking-tight uppercase">{band.name}</h1>
           <p className="text-lg font-semibold text-gray-700 mt-1 uppercase tracking-wide">Technical Rider</p>
-          <p className="text-xl text-gray-500 mt-1">7-Piece Band | Stage Plot &amp; Input List</p>
+          <p className="text-xl text-gray-500 mt-1">{band.lineup} | Stage Plot &amp; Input List</p>
         </header>
 
-        {/* Visual Stage Plot */}
+        {/* Stage Plot */}
         <section>
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
             <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">1</span>
             Stage Plot
           </h2>
-          {/* Mobile: stacked rows. Desktop: 16/9 grid */}
-          <div className="bg-white border-4 border-gray-200 rounded-xl shadow-inner overflow-hidden">
-
-            {/* Direction labels row */}
-            <div className="flex justify-between px-3 pt-2 pb-1">
-              <span className="text-[10px] font-bold text-gray-400">USR</span>
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest">↑ UPSTAGE</span>
-              <span className="text-[10px] font-bold text-gray-400">USL</span>
-            </div>
-
-            {/* Backline row */}
-            <div className="grid grid-cols-3 gap-2 px-3 pb-2">
-              {[
-                { name: "MATT", sub: "Keys + BGV", mix: "Mix 4", power: true },
-                { name: "BILL", sub: "Drums", mix: "Mix 6", power: false },
-                { name: "TERRY", sub: "Bass + BGV", mix: "Mix 5", power: true },
-              ].map((p) => (
-                <div key={p.name} className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
-                  <p className="font-bold text-sm leading-tight">{p.name}</p>
-                  <p className="text-[11px] text-gray-600 leading-tight">{p.sub}</p>
-                  <p className="text-[10px] text-gray-400">{p.mix}</p>
-                  <div className="h-5 flex items-center justify-center">
-                    {p.power && <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded">POWER</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Divider */}
-            <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
-
-            {/* Frontline row */}
-            <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
-              <div className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
-                <p className="font-bold text-sm leading-tight">HORNS</p>
-                <p className="text-[11px] text-gray-600 leading-tight">Sax &amp; Tpt</p>
-                <p className="text-[10px] text-gray-400">Mix 3</p>
-                <div className="h-5" />
-              </div>
-              <div className="flex flex-col items-center border-2 border-black bg-gray-900 text-white rounded-lg p-2 text-center gap-0.5 shadow-lg">
-                <p className="font-bold text-sm leading-tight">RACHEL</p>
-                <p className="text-[11px] opacity-80 leading-tight">Lead Vox</p>
-                <p className="text-[10px] opacity-60">Mix 1</p>
-                <p className="text-[9px] opacity-50">Straight Stand</p>
-              </div>
-              <div className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
-                <p className="font-bold text-sm leading-tight">GRAHAM</p>
-                <p className="text-[11px] text-gray-600 leading-tight">Gtr + BGV</p>
-                <p className="text-[10px] text-gray-400">Mix 2</p>
-                <div className="h-5 flex items-center justify-center">
-                  <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded">POWER</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Direction labels row */}
-            <div className="flex justify-between px-3 pb-2 pt-1">
-              <span className="text-[10px] font-bold text-gray-400">DSR</span>
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest">↓ AUDIENCE / FOH</span>
-              <span className="text-[10px] font-bold text-gray-400">DSL</span>
-            </div>
-          </div>
+          <StagePlot band={band} />
         </section>
 
         {/* Input List */}
@@ -116,7 +117,7 @@ export default function TechnicalRider() {
             <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">2</span>
             Input List
           </h2>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
@@ -128,7 +129,7 @@ export default function TechnicalRider() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {inputs.map((i) => (
+                {band.inputs.map((i) => (
                   <tr key={i.ch} className="hover:bg-gray-50">
                     <td className="px-4 py-2 font-mono">{i.ch}</td>
                     <td className="px-4 py-2 font-bold">{i.inst}</td>
@@ -150,7 +151,7 @@ export default function TechnicalRider() {
               Monitor Mixes
             </h2>
             <div className="space-y-4">
-              {monitors.map((m) => (
+              {band.monitors.map((m) => (
                 <div key={m.mix} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                   <h3 className="font-bold flex items-center gap-2">
                     <span className="text-blue-600">Mix {m.mix}:</span> {m.name}
@@ -167,10 +168,9 @@ export default function TechnicalRider() {
               Notes
             </h2>
             <ul className="space-y-3 text-sm text-gray-700 bg-yellow-50 p-6 rounded-xl border border-yellow-200">
-              <li><strong>Stands:</strong> Rachel requires a <strong>Straight Stand</strong>. All others (BGVs &amp; Horns) require <strong>Boom Stands</strong>.</li>
-              <li><strong>Power:</strong> Minimum 1x AC drop required at DSL (Guitar), USL (Bass), and USR (Keys).</li>
-              <li><strong>Horns:</strong> Players may use house SM57s or personal clip-ons. Provide 2x XLR and stands at DSR.</li>
-              <li><strong>Keys:</strong> Matt is DI (Mono). He may use a personal monitor in addition to the house wedge (Mix 3).</li>
+              {band.notes.map((n) => (
+                <li key={n.label}><strong>{n.label}:</strong> {n.text}</li>
+              ))}
             </ul>
           </div>
         </section>
