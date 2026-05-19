@@ -48,6 +48,20 @@ const looselyCovered: BandConfig = {
     { label: 'Horns',   text: 'Players may use house SM57s or personal clip-ons. Provide 2x XLR and stands at DSR.' },
     { label: 'Keys',    text: 'Matt is DI (Mono). He may use a personal monitor in addition to the house wedge (Mix 4).' },
   ],
+
+  // Optional — update or remove before each show
+  setlist: [
+    { position: 1,  title: 'Song Title',   lead: 'Rachel' },
+    { position: 2,  title: 'Song Title',   lead: 'Graham' },
+    { position: 3,  title: 'Song Title',   lead: 'Rachel',          notes: 'Key change' },
+    { position: 4,  title: 'Song Title',   lead: 'Rachel + Graham', sceneNote: 'Save scene after' },
+    { position: 5,  title: 'Song Title',   lead: 'Graham' },
+    { position: 6,  title: 'Song Title',   lead: 'Rachel' },
+    { position: 7,  title: 'Song Title',   lead: 'Rachel',          notes: 'Horns feature' },
+    { position: 8,  title: 'Song Title',   lead: 'Graham' },
+    { position: 9,  title: 'Song Title',   lead: 'Rachel + Graham' },
+    { position: 10, title: 'Song Title',   lead: 'Rachel',          sceneNote: 'Save scene after' },
+  ],
 };
 
 export default looselyCovered;

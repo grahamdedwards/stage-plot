@@ -1,6 +1,24 @@
 import { getBand } from '@/lib/bands';
 import type { StagePosition, BandConfig } from '@/lib/types';
 
+// Assign a stable color to each unique singer name
+const SINGER_COLORS = [
+  'bg-blue-100 text-blue-800',
+  'bg-purple-100 text-purple-800',
+  'bg-green-100 text-green-800',
+  'bg-orange-100 text-orange-800',
+  'bg-pink-100 text-pink-800',
+  'bg-teal-100 text-teal-800',
+];
+
+function getSingerColor(name: string, colorMap: Map<string, string>): string {
+  if (!colorMap.has(name)) {
+    const color = SINGER_COLORS[colorMap.size % SINGER_COLORS.length];
+    colorMap.set(name, color);
+  }
+  return colorMap.get(name)!;
+}
+
 const POSITION_ORDER: StagePosition[] = ['USR', 'USC', 'USL', 'DSR', 'DSC', 'DSL'];
 
 function StagePlot({ band }: { band: BandConfig }) {
@@ -174,6 +192,74 @@ export default function TechnicalRider() {
             </ul>
           </div>
         </section>
+
+        {/* Setlist — optional */}
+        {band.setlist && band.setlist.length > 0 && (() => {
+          const colorMap = new Map<string, string>();
+          band.setlist!.forEach((s) => {
+            s.lead.split('+').map((n) => n.trim()).forEach((n) => getSingerColor(n, colorMap));
+          });
+          const legend = Array.from(colorMap.entries());
+
+          return (
+            <section>
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">5</span>
+                Run Order / Setlist
+              </h2>
+
+              {/* Singer color legend */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {legend.map(([name, color]) => (
+                  <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
+                ))}
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 font-bold w-10">#</th>
+                      <th className="px-4 py-3 font-bold">Song</th>
+                      <th className="px-4 py-3 font-bold">Lead</th>
+                      <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {band.setlist!.map((song) => {
+                      const singers = song.lead.split('+').map((n) => n.trim());
+                      return (
+                        <tr key={song.position} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
+                          <td className="px-4 py-2 font-medium">
+                            {song.title}
+                            {song.sceneNote && (
+                              <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-semibold">
+                                {song.sceneNote}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex flex-wrap gap-1">
+                              {singers.map((singer) => (
+                                <span key={singer} className={`px-1.5 py-0.5 rounded text-xs font-semibold ${getSingerColor(singer, colorMap)}`}>
+                                  {singer}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
+                            {song.notes}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        })()}
 
       </div>
     </div>

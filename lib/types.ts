@@ -28,6 +28,14 @@ export interface GeneralNote {
   text: string;
 }
 
+export interface SetlistSong {
+  position: number;
+  title: string;
+  lead: string;           // singer name(s) — e.g. "Rachel" or "Graham + Rachel"
+  notes?: string;         // e.g. "key change", "guest", "spoken word"
+  sceneNote?: string;     // engineer cue — e.g. "save scene after"
+}
+
 export interface BandConfig {
   slug: string;           // used in ?band= URL param
   name: string;           // band name shown in header
@@ -36,4 +44,5 @@ export interface BandConfig {
   inputs: InputChannel[];
   monitors: MonitorMix[];
   notes: GeneralNote[];
+  setlist?: SetlistSong[]; // optional — omit if not needed
 }
