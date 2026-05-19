@@ -351,11 +351,11 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
       <div className="max-w-4xl mx-auto space-y-12">
         <header className="text-center border-b pb-8">
           <h1 className="text-4xl font-black tracking-tight uppercase">{band.name}</h1>
-          {(showInfo.venue || showInfo.eventDate) && (
-            <p className="text-lg font-semibold text-gray-700 mt-1">
-              {showInfo.venue}{showInfo.venue && showInfo.eventDate ? ' · ' : ''}{showInfo.eventDate}
-            </p>
-          )}
+          <p className="text-lg font-semibold text-gray-700 mt-1">
+            {showInfo.venue && showInfo.eventDate
+              ? `${showInfo.venue} · ${showInfo.eventDate}`
+              : showInfo.venue || showInfo.eventDate || 'Set venue & date in Setup'}
+          </p>
           <p className="text-sm text-gray-400 mt-1 uppercase tracking-wide">{band.lineup}</p>
         </header>
 
