@@ -1,4 +1,10 @@
-export type StagePosition = 'USR' | 'USC' | 'USL' | 'DSR' | 'DSC' | 'DSL';
+export type StagePosition =
+  | 'USR' | 'USC' | 'USL'   // Upstage
+  | 'MSR' | 'MSC' | 'MSL'   // Mid-stage
+  | 'DSR' | 'DSC' | 'DSL'   // Downstage
+  | 'PIT'                    // Orchestra pit
+  | 'FOH'                    // Front of house (engineer position)
+  | 'OTHER';                 // Catch-all for non-standard positions
 
 export interface StageSlot {
   name: string;

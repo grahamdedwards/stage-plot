@@ -98,6 +98,23 @@ Organization (e.g. Bohemian Club)
 - **New Show wizard** — 3 steps: pick template → update date/venue/names → done.
 - Per-engineer views within a shared org structure (future, needs backend).
 
+### Stage Grid Evolution (Planned)
+
+Current grid is 2-row (US/DS). Needs to scale for complex productions:
+
+```
+[ USR ] [ USC ] [ USL ]   ← upstage
+[ MSR ] [ MSC ] [ MSL ]   ← mid-stage (added)
+[ DSR ] [ DSC ] [ DSL ]   ← downstage
+[          PIT           ]   ← orchestra pit (full-width row)
+```
+
+Special zones: `PIT` (orchestra pit, spans full width), `FOH` (engineer desk), `OTHER` (fly rigs, side stages, etc.)
+
+For big shows (Big-3 etc.) the grid may need to be free-form rather than a fixed 3×N — drag-and-drop positioning is the right UX end state. Simpler near-term: zone dropdown with a free-text position label ("US Wings R", "Pit Row 2", etc.).
+
+**Drag-and-drop:** viable with `@dnd-kit/core` (lightweight, no jQuery). Each slot becomes draggable; dropping onto a grid cell updates the position. Nice-to-have, not blocking.
+
 ### Decision Gate
 Not building until Graham validates the use case through personal bands + Bohemian Club shows. Current tool (localStorage + shareable URL + PDF print) serves immediate needs. Template/library layer added when the iteration loop proves the value.
 
