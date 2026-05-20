@@ -207,6 +207,14 @@ export default function Page() {
   const [isOffline, setIsOffline] = useState(() =>
     typeof window !== 'undefined' ? !navigator.onLine : false
   );
+  const [googleError] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    if (window.location.hash === '#error=google_not_configured') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      return 'Google Drive is not configured on this server. The site owner needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.';
+    }
+    return '';
+  });
 
   // ── Persist to localStorage on change ─────────────────────────────────
   useEffect(() => {
@@ -298,7 +306,7 @@ export default function Page() {
         <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       )}
       {tab === 'setup' && (
-        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
+        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
       )}
       {tab === 'ai' && (
         <div className="p-4 md:p-8">
@@ -1836,11 +1844,13 @@ function SetupTab({
   config,
   updateConfig,
   googleToken,
+  googleError,
   onDisconnectGoogle,
 }: {
   config: AppConfig;
   updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
   googleToken: GoogleToken | null;
+  googleError?: string;
   onDisconnectGoogle: () => void;
 }) {
   const [sheetUrl, setSheetUrl] = useState('');
@@ -2351,6 +2361,9 @@ function SetupTab({
               <p className="text-sm text-gray-600">
                 Connect Google Drive to auto-match charts to songs by role (Lyrics, Guitar, Bass, etc.).
               </p>
+              {googleError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{googleError}</p>
+              )}
               <a
                 href="/api/auth/google"
                 className="inline-block px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
