@@ -1016,10 +1016,10 @@ function SetupSetlistTable({
                 <tr className="border-b">
                   <th className="w-8"></th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-10">#</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Title</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Lead</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 hidden sm:table-cell">Notes</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24 hidden sm:table-cell">Scene Note</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[160px]">Title</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Lead</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
                   <th className="w-16"></th>
                   <th className="w-10"></th>
                 </tr>
@@ -1093,10 +1093,10 @@ function SetupSortableRow({
       <td className="px-2 py-1">
         <input className={inputCls} value={song.lead} onChange={(e) => onUpdate(idx, 'lead', e.target.value)} />
       </td>
-      <td className="px-2 py-1 hidden sm:table-cell">
+      <td className="px-2 py-1">
         <input className={inputCls} value={song.notes ?? ''} onChange={(e) => onUpdate(idx, 'notes', e.target.value)} />
       </td>
-      <td className="px-2 py-1 hidden sm:table-cell">
+      <td className="px-2 py-1">
         <input className={inputCls} value={song.sceneNote ?? ''} onChange={(e) => onUpdate(idx, 'sceneNote', e.target.value)} />
       </td>
       <td className="px-1 py-1">
@@ -1148,10 +1148,10 @@ function SetupInputTable({
                 <tr className="border-b">
                   <th className="w-8"></th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-14">Ch</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Instrument</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Mic/DI</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 hidden sm:table-cell">Stand</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 hidden sm:table-cell">Notes</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[140px]">Instrument</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Mic/DI</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Stand</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
                   <th className="w-16"></th>
                   <th className="w-10"></th>
                 </tr>
@@ -1207,10 +1207,10 @@ function SortableInputRow({
       <td className="px-2 py-1">
         <input className={inputCls} value={inp.mic} onChange={(e) => onUpdate(idx, 'mic', e.target.value)} />
       </td>
-      <td className="px-2 py-1 hidden sm:table-cell">
+      <td className="px-2 py-1">
         <input className={inputCls} value={inp.stand} onChange={(e) => onUpdate(idx, 'stand', e.target.value)} />
       </td>
-      <td className="px-2 py-1 hidden sm:table-cell">
+      <td className="px-2 py-1">
         <input className={inputCls} value={inp.notes ?? ''} onChange={(e) => onUpdate(idx, 'notes', e.target.value)} />
       </td>
       <td className="px-1 py-1">
@@ -1562,12 +1562,12 @@ function SetupTab({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Name</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Name</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Position</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Role</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Role</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-16">Mix</th>
-                  <th className="text-center px-2 py-2 text-xs font-bold text-gray-500 w-14 hidden sm:table-cell">Power</th>
-                  <th className="text-center px-2 py-2 text-xs font-bold text-gray-500 w-14 hidden sm:table-cell">Feat.</th>
+                  <th className="text-center px-2 py-2 text-xs font-bold text-gray-500 w-14">Power</th>
+                  <th className="text-center px-2 py-2 text-xs font-bold text-gray-500 w-14">Feat.</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -1631,7 +1631,7 @@ function SetupTab({
                         }
                       />
                     </td>
-                    <td className="px-2 py-1 text-center hidden sm:table-cell">
+                    <td className="px-2 py-1 text-center">
                       <input
                         type="checkbox"
                         checked={slot.power ?? false}
@@ -1644,7 +1644,7 @@ function SetupTab({
                         }
                       />
                     </td>
-                    <td className="px-2 py-1 text-center hidden sm:table-cell">
+                    <td className="px-2 py-1 text-center">
                       <input
                         type="checkbox"
                         checked={slot.featured ?? false}
