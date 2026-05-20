@@ -41,11 +41,10 @@ User clicks "Download Charts for Offline" in Setup tab
   │
   ├─ For each song with resolved charts:
   │    For each chart:
-  │      1. Fetch the file from Google Drive (using access token)
-  │         GET https://www.googleapis.com/drive/v3/files/{fileId}?alt=media
-  │      2. Store response in Cache API
-  │         cache.put(cacheKey, response)
-  │      3. Update chart object with cached flag
+  │      1. Check cache: cache.match(cacheKey) — skip if already cached
+  │      2. Fetch via proxy: POST /api/drive/download { fileId, mimeType }
+  │         (proxy handles Drive auth + Google Docs→PDF export)
+  │      3. Store response in Cache API: cache.put(cacheKey, response)
   │
   ├─ Progress bar: "Downloading 42/87 charts..."
   │
@@ -104,9 +103,19 @@ public/sw.js
 on fetch:
   if request.url matches /api/chart-cache/*
     → serve from Cache API (named cache: "stageplot-charts-v1")
-    → fallback to network (if online)
-    → fallback to Response("Chart not available offline", { status: 503 })
+    → if cache miss: Response("Chart not available offline", { status: 503 })
+    (NO network fallback — synthetic URLs don't resolve to a real route)
+  else
+    → pass through to network (all other requests unaffected)
 ```
+
+**App-level routing (navigator component):**
+- Online + cached → open from cache (fast, avoids Drive round-trip)
+- Online + not cached → open Drive URL directly (normal link)
+- Offline + cached → open from cache
+- Offline + not cached → show "Chart not available offline" message
+
+The SW only handles cache hits/misses for synthetic keys. The app decides whether to use the synthetic cache URL or the real Drive URL based on online status and cache availability.
 
 Registered on first "Download Charts" action. No service worker installed until the user opts in — keeps the app simple for users who don't need offline.
 
@@ -213,7 +222,7 @@ Used to:
 | Chart file replaced (new fileId) | Same flow — "Refresh Charts" picks up the new fileId + modifiedTime. |
 | Browser clears cache (storage pressure) | `cache.match()` returns miss. "Download Charts" re-downloads everything. No stale boolean flags. |
 | Google Doc export too large (>10MB) | Skipped with error. Shown as "online only" in navigator. Download continues for remaining charts. |
-| Multiple shows cached | Each show has its own cache entries (keyed by song title). No conflict. |
+| Multiple shows cached | Cache entries are keyed by fileId + modifiedTime, not song title. Same file used across shows shares one cache entry. No conflict, no duplication. |
 | Storage quota exceeded | Catch the quota error, show "Not enough storage — clear other cached shows or browser data". |
 | User never clicks Download | No service worker, no cache, no overhead. App works exactly as before. |
 
