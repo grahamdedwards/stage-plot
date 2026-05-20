@@ -108,7 +108,7 @@ function configToBand(c: AppConfig): BandConfig {
 }
 
 const STORAGE_KEY = 'stageplot-config';
-const POSITIONS: StagePosition[] = ['USR', 'USC', 'USL', 'DSR', 'DSC', 'DSL'];
+const POSITIONS: StagePosition[] = ['USR', 'USC', 'USL', 'MSR', 'MSC', 'MSL', 'DSR', 'DSC', 'DSL'];
 
 // ─── Singer Colors (shared between tabs) ───────────────────────────────────
 const SINGER_COLORS = [
@@ -345,8 +345,37 @@ export default function Page() {
 // SHOW TAB — existing rider view
 // ════════════════════════════════════════════════════════════════════════════
 
+function StageSlotCell({ slot }: { slot: StageSlot | undefined }) {
+  const isFeatured = slot?.featured;
+  return (
+    <div
+      className={`flex flex-col items-center rounded-lg p-2 text-center gap-0.5 border-2 ${
+        isFeatured
+          ? 'border-black bg-gray-900 text-white shadow-lg'
+          : 'border-dashed border-blue-100 bg-blue-50/30'
+      }`}
+    >
+      {slot ? (
+        <>
+          <p className="font-bold text-sm leading-tight uppercase">{slot.name}</p>
+          <p className={`text-[11px] leading-tight ${isFeatured ? 'opacity-80' : 'text-gray-600'}`}>{slot.role}</p>
+          <p className={`text-[10px] ${isFeatured ? 'opacity-60' : 'text-gray-400'}`}>Mix {slot.mix}</p>
+        </>
+      ) : (
+        <p className="text-[10px] text-gray-300 italic">empty</p>
+      )}
+      <div className="h-5 flex items-center justify-center">
+        {slot?.power && (
+          <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded text-black">POWER</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StagePlotView({ band }: { band: BandConfig }) {
   const slotMap = Object.fromEntries(band.stagePlot.map((s) => [s.pos, s]));
+  const hasMidStage = (['MSR', 'MSC', 'MSL'] as StagePosition[]).some((p) => slotMap[p]);
 
   return (
     <div className="bg-white border-4 border-gray-200 rounded-xl shadow-inner overflow-hidden">
@@ -356,59 +385,25 @@ function StagePlotView({ band }: { band: BandConfig }) {
         <span className="text-[10px] font-bold text-gray-400">USL</span>
       </div>
       <div className="grid grid-cols-3 gap-2 px-3 pb-2">
-        {(['USR', 'USC', 'USL'] as StagePosition[]).map((pos) => {
-          const slot = slotMap[pos];
-          return (
-            <div key={pos} className="flex flex-col items-center border-2 border-dashed border-blue-100 bg-blue-50/30 rounded-lg p-2 text-center gap-0.5">
-              {slot ? (
-                <>
-                  <p className="font-bold text-sm leading-tight uppercase">{slot.name}</p>
-                  <p className="text-[11px] text-gray-600 leading-tight">{slot.role}</p>
-                  <p className="text-[10px] text-gray-400">Mix {slot.mix}</p>
-                </>
-              ) : (
-                <p className="text-[10px] text-gray-300 italic">empty</p>
-              )}
-              <div className="h-5 flex items-center justify-center">
-                {slot?.power && (
-                  <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded">POWER</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {(['USR', 'USC', 'USL'] as StagePosition[]).map((pos) => (
+          <StageSlotCell key={pos} slot={slotMap[pos]} />
+        ))}
       </div>
+      {hasMidStage && (
+        <>
+          <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
+          <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
+            {(['MSR', 'MSC', 'MSL'] as StagePosition[]).map((pos) => (
+              <StageSlotCell key={pos} slot={slotMap[pos]} />
+            ))}
+          </div>
+        </>
+      )}
       <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
       <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
-        {(['DSR', 'DSC', 'DSL'] as StagePosition[]).map((pos) => {
-          const slot = slotMap[pos];
-          const isFeatured = slot?.featured;
-          return (
-            <div
-              key={pos}
-              className={`flex flex-col items-center rounded-lg p-2 text-center gap-0.5 border-2 ${
-                isFeatured
-                  ? 'border-black bg-gray-900 text-white shadow-lg'
-                  : 'border-dashed border-blue-100 bg-blue-50/30'
-              }`}
-            >
-              {slot ? (
-                <>
-                  <p className="font-bold text-sm leading-tight uppercase">{slot.name}</p>
-                  <p className={`text-[11px] leading-tight ${isFeatured ? 'opacity-80' : 'text-gray-600'}`}>{slot.role}</p>
-                  <p className={`text-[10px] ${isFeatured ? 'opacity-60' : 'text-gray-400'}`}>Mix {slot.mix}</p>
-                </>
-              ) : (
-                <p className="text-[10px] text-gray-300 italic">empty</p>
-              )}
-              <div className="h-5 flex items-center justify-center">
-                {slot?.power && (
-                  <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded text-black">POWER</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {(['DSR', 'DSC', 'DSL'] as StagePosition[]).map((pos) => (
+          <StageSlotCell key={pos} slot={slotMap[pos]} />
+        ))}
       </div>
       <div className="flex justify-between px-3 pb-2 pt-1">
         <span className="text-[10px] font-bold text-gray-400">DSR</span>
