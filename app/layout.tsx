@@ -13,17 +13,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Show Bible — Stage Plot, Input List & Charts",
+  title: "ShowRunr — Stage Plot, Input List & Charts",
   description: "Live, mobile-optimized technical rider. Stage plot, input list, monitor mixes, setlist, and charts — shareable via URL, usable offline at the gig.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Show Bible",
+    title: "ShowRunr",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#121212",
   width: "device-width",
   initialScale: 1,
 };
