@@ -28,8 +28,20 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  if (!body.folderId || !body.songs?.length) {
-    return Response.json({ error: 'Missing folderId or songs' }, { status: 400 });
+  if (!body.folderId || typeof body.folderId !== 'string') {
+    return Response.json({ error: 'Missing or invalid folderId' }, { status: 400 });
+  }
+  if (!Array.isArray(body.songs) || body.songs.length === 0) {
+    return Response.json({ error: 'Missing or empty songs array' }, { status: 400 });
+  }
+  // Validate and sanitize each song entry
+  body.songs = body.songs
+    .filter((s): s is { idx: number; title: string } =>
+      typeof s?.idx === 'number' && typeof s?.title === 'string'
+    )
+    .map((s) => ({ idx: s.idx, title: s.title }));
+  if (body.songs.length === 0) {
+    return Response.json({ error: 'No valid songs in payload' }, { status: 400 });
   }
 
   try {

@@ -823,8 +823,9 @@ function SetupTab({
   const resolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    // Clear charts when Drive is disconnected
+    // Clear charts and invalidate in-flight requests when Drive is disconnected
     if (!config.chartsRootFolderId) {
+      resolveVersionRef.current++;
       const hasCharts = config.setlist.some((s) => s.charts);
       if (hasCharts) {
         updateConfig((p) => ({
@@ -840,6 +841,8 @@ function SetupTab({
     if (resolveSignature === prevSignatureRef.current) return;
     prevSignatureRef.current = resolveSignature;
 
+    // Invalidate any in-flight request from the previous signature
+    resolveVersionRef.current++;
     if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current);
     resolveTimerRef.current = setTimeout(() => {
       resolveCharts();
