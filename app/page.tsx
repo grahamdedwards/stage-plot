@@ -1961,12 +1961,19 @@ function SetupTab({
                   const reader = new FileReader();
                   reader.onload = () => {
                     try {
-                      const parsed = JSON.parse(reader.result as string) as AppConfig;
-                      if (!parsed.stagePlot || !parsed.inputs || !parsed.setlist) {
-                        alert('Invalid show file — missing required sections.');
+                      const parsed = JSON.parse(reader.result as string);
+                      if (
+                        !Array.isArray(parsed.stagePlot) ||
+                        !Array.isArray(parsed.inputs) ||
+                        !Array.isArray(parsed.setlist) ||
+                        !Array.isArray(parsed.monitors) ||
+                        !Array.isArray(parsed.notes) ||
+                        !parsed.showInfo?.bandName
+                      ) {
+                        alert('Invalid show file — missing required sections (stagePlot, inputs, setlist, monitors, notes, showInfo).');
                         return;
                       }
-                      updateConfig(() => withStableIds(parsed));
+                      updateConfig(() => withStableIds(parsed as AppConfig));
                     } catch {
                       alert('Could not read file — invalid JSON.');
                     }
