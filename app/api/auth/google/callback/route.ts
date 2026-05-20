@@ -7,6 +7,13 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'Missing code' }, { status: 400 });
   }
 
+  // Validate CSRF state
+  const state = request.nextUrl.searchParams.get('state');
+  const cookieState = request.cookies.get('oauth_state')?.value;
+  if (!state || !cookieState || state !== cookieState) {
+    return Response.json({ error: 'Invalid state — possible CSRF' }, { status: 403 });
+  }
+
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -46,5 +53,12 @@ export async function GET(request: NextRequest) {
     expires_in: String(tokens.expires_in),
   });
 
-  return Response.redirect(`${origin}/#google_auth=${fragment}`);
+  const headers = new Headers({ Location: `${origin}/#google_auth=${fragment}` });
+  // Clear the state cookie
+  headers.append(
+    'Set-Cookie',
+    'oauth_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/google/callback; Max-Age=0',
+  );
+
+  return new Response(null, { status: 302, headers });
 }

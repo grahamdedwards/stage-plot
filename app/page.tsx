@@ -382,6 +382,7 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
   // Charts state: song index -> charts array
   const [chartsCache, setChartsCache] = useState<Record<number, Chart[]>>({});
   const [chartsLoading, setChartsLoading] = useState<Record<number, boolean>>({});
+  const [chartsError, setChartsError] = useState<string | null>(null);
   const [openPopover, setOpenPopover] = useState<number | null>(null);
 
   const loadCharts = useCallback(async (songIdx: number, title: string) => {
@@ -391,18 +392,26 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
       return;
     }
     setChartsLoading((p) => ({ ...p, [songIdx]: true }));
+    setChartsError(null);
     try {
       const res = await fetch(
         `/api/drive?folderId=${encodeURIComponent(chartsRootFolderId)}&songTitle=${encodeURIComponent(title)}`,
         { headers: { Authorization: `Bearer ${googleToken.access_token}` } },
       );
-      if (res.ok) {
-        const data = await res.json() as Chart[];
-        setChartsCache((p) => ({ ...p, [songIdx]: data }));
-        setOpenPopover(songIdx);
+      if (res.status === 401) {
+        setChartsError('Google session expired — reconnect in Setup');
+        return;
       }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+        setChartsError(data.error ?? `Drive error (${res.status})`);
+        return;
+      }
+      const data = await res.json() as Chart[];
+      setChartsCache((p) => ({ ...p, [songIdx]: data }));
+      setOpenPopover(songIdx);
     } catch {
-      // silently fail
+      setChartsError('Network error loading charts');
     } finally {
       setChartsLoading((p) => ({ ...p, [songIdx]: false }));
     }
@@ -504,6 +513,11 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
             </div>
+            {chartsError && (
+              <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                {chartsError}
+              </div>
+            )}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 border-b">
@@ -668,13 +682,31 @@ function SetupTab({
   const [driveError, setDriveError] = useState('');
   const [folderIdInput, setFolderIdInput] = useState(config.chartsRootFolderId ?? '');
 
+  // Extract folder ID from URL or bare ID
+  const parseFolderId = (input: string): string | null => {
+    const trimmed = input.trim();
+    // Match /folders/FOLDER_ID or /d/FOLDER_ID patterns in Drive URLs
+    const urlMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (urlMatch) return urlMatch[1];
+    const dMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (dMatch) return dMatch[1];
+    // Bare ID (no slashes, reasonable length)
+    if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmed)) return trimmed;
+    return null;
+  };
+
   const handleSetupDrive = async () => {
     if (!googleToken || !folderIdInput.trim()) return;
+    const folderId = parseFolderId(folderIdInput);
+    if (!folderId) {
+      setDriveError('Invalid folder URL or ID. Paste a Google Drive folder link or its ID.');
+      return;
+    }
     setDriveSetupLoading(true);
     setDriveError('');
     try {
       const res = await fetch(
-        `/api/drive/setup?parentFolderId=${encodeURIComponent(folderIdInput.trim())}`,
+        `/api/drive/setup?parentFolderId=${encodeURIComponent(folderId)}`,
         { headers: { Authorization: `Bearer ${googleToken.access_token}` } },
       );
       const data = await res.json();
@@ -682,7 +714,7 @@ function SetupTab({
         setDriveError(data.error || 'Failed to setup Drive folders');
         return;
       }
-      updateConfig((p) => ({ ...p, chartsRootFolderId: folderIdInput.trim() }));
+      updateConfig((p) => ({ ...p, chartsRootFolderId: folderId }));
     } catch {
       setDriveError('Network error');
     } finally {
@@ -1280,13 +1312,13 @@ function SetupTab({
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-gray-600">
-                    Enter the Google Drive folder ID where your Charts folder lives (or should be created).
-                    You can find this in the folder&apos;s URL after <code className="text-xs bg-gray-100 px-1 rounded">/folders/</code>.
+                    Paste the Google Drive folder URL (or ID) where your Charts folder should live.
+                    The app will create role subfolders automatically.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
-                      className={`${inputCls} flex-1 font-mono`}
-                      placeholder="Google Drive folder ID..."
+                      className={`${inputCls} flex-1`}
+                      placeholder="Google Drive folder URL or ID..."
                       value={folderIdInput}
                       onChange={(e) => setFolderIdInput(e.target.value)}
                     />

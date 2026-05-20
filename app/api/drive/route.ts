@@ -26,13 +26,13 @@ export async function GET(request: NextRequest) {
 
     const charts: { role: string; url: string; label: string; dupeCount: number }[] = [];
 
-    // 2. For each role folder, search for files matching the normalized title
+    // 2. For each role folder, search for files (not folders) matching the normalized title
     await Promise.all(
       foldersRes.map(async (folder: { id: string; name: string }) => {
-        const filesRes = await driveQuery(
-          `'${folder.id}' in parents and trashed = false`,
+        const filesRes = await driveQueryAll(
+          `'${folder.id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
           accessToken,
-          'id, name, webViewLink, mimeType',
+          'id, name, webViewLink',
         );
 
         const matches = filesRes.filter((f: { name: string }) =>
@@ -74,11 +74,13 @@ function normalize(s: string): string {
     .trim();
 }
 
+type DriveFile = { id: string; name: string; webViewLink: string };
+
 async function driveQuery(
   q: string,
   accessToken: string,
   fields = 'id, name, webViewLink',
-): Promise<{ id: string; name: string; webViewLink: string; mimeType?: string }[]> {
+): Promise<DriveFile[]> {
   const params = new URLSearchParams({
     q,
     fields: `files(${fields})`,
@@ -91,6 +93,37 @@ async function driveQuery(
     const text = await res.text();
     throw new Error(`Drive query failed (${res.status}): ${text}`);
   }
-  const data = await res.json() as { files: { id: string; name: string; webViewLink: string; mimeType?: string }[] };
+  const data = await res.json() as { files: DriveFile[] };
   return data.files ?? [];
+}
+
+// Paginated version — follows nextPageToken to get all results
+async function driveQueryAll(
+  q: string,
+  accessToken: string,
+  fields = 'id, name, webViewLink',
+): Promise<DriveFile[]> {
+  const all: DriveFile[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      q,
+      fields: `nextPageToken, files(${fields})`,
+      pageSize: '100',
+      ...(pageToken ? { pageToken } : {}),
+    });
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Drive query failed (${res.status}): ${text}`);
+    }
+    const data = await res.json() as { files: DriveFile[]; nextPageToken?: string };
+    all.push(...(data.files ?? []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return all;
 }
