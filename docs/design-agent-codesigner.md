@@ -74,8 +74,10 @@ The agent doesn't call APIs — it returns structured tool calls that the app ap
 
 ```ts
 // Tool: update_stage_plot
+// JSON Schema constrains pos to the 6 UI-supported values only
 {
   stagePlot: StageSlot[]  // full replacement — agent sends complete array
+  // pos enum in schema: ["USR", "USC", "USL", "DSR", "DSC", "DSL"]
 }
 
 // Tool: update_inputs
@@ -151,6 +153,8 @@ Claude's tool use requires a strict request/response loop: when the model return
 ```
 
 **Multiple tool calls in one turn:** Claude may return several `tool_use` blocks (e.g., update_stage_plot + update_inputs). Each gets its own preview card. All `tool_result` messages are collected and sent together in the next request. The user can approve some and reject others.
+
+**Message ordering (Claude API requirement):** The `tool_result` content blocks **must** appear first in the user message content array, before any text content. This is a strict API constraint — placing text before tool_result blocks will produce a 400 error. Implementation must ensure this ordering.
 
 **Streaming:** The response is streamed for UX responsiveness, but tool calls are only acted on after the full response completes (all `tool_use` blocks received). No partial tool execution.
 
@@ -259,14 +263,16 @@ musicians and engineers set up shows by translating natural language
 descriptions into structured technical configurations.
 
 You understand:
-- Stage positions (all valid values):
+- Stage positions (v1 — only these 6 are supported by the UI):
   Upstage: USR (upstage right), USC (upstage center), USL (upstage left)
-  Mid-stage: MSR (mid-stage right), MSC (mid-stage center), MSL (mid-stage left)
   Downstage: DSR (downstage right), DSC (downstage center), DSL (downstage left)
-  Special: PIT (orchestra pit), FOH (front of house / engineer), OTHER
-  Stage left/right is from the performer's perspective (audience's
-  right = stage left = USR/DSR). Use mid-stage positions for larger
-  ensembles that need a third row. PIT for orchestra configurations.
+  Do NOT use MSR/MSC/MSL, PIT, FOH, or OTHER — those exist in the
+  type system but are not yet renderable in the stage plot UI or
+  editable in the Setup tab. If a band needs more than 6 positions,
+  double up positions (e.g., two people at DSR) and note it.
+  Stage left/right is from the performer's perspective facing the
+  audience. Audience's right = stage left = USL/DSL. Audience's
+  left = stage right = USR/DSR.
 - Standard instrument mic'ing (SM57 on snare, kick drum mic, DI for
   bass and keys, SM58/Beta58 for vocals, condensers for overheads,
   clip mics for horns)
