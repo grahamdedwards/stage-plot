@@ -50,25 +50,27 @@ POST /api/drive/batch
     ]
   }
 
-Response: [
-  {
-    idx: 0,
-    charts: [
-      { role: "Guitar", url: "...", label: "Superstition.pdf", fileId: "abc", dupeCount: 1 },
-      { role: "Lyrics", url: "...", label: "Superstition - lyrics.docx", fileId: "def", dupeCount: 1 }
-    ]
-  },
-  {
-    idx: 1,
-    charts: [
-      { role: "Horns", url: "...", label: "Brick House Bb.pdf", fileId: "ghi", dupeCount: 2 }
-    ]
-  },
-  {
-    idx: 5,
-    charts: [...]  // same charts as idx 0 — resolved identically but returned per-slot
-  }
-]
+Response: {
+  results: [
+    {
+      idx: 0,
+      charts: [
+        { role: "Guitar", url: "...", label: "Superstition.pdf", fileId: "abc", dupeCount: 1 },
+        { role: "Lyrics", url: "...", label: "Superstition - lyrics.docx", fileId: "def", dupeCount: 1 }
+      ]
+    },
+    {
+      idx: 1,
+      charts: [
+        { role: "Horns", url: "...", label: "Brick House Bb.pdf", fileId: "ghi", dupeCount: 2 }
+      ]
+    },
+    {
+      idx: 5,
+      charts: [...]  // same charts as idx 0 — resolved identically but returned per-slot
+    }
+  ]
+}
 ```
 
 **Why a batch endpoint?** One client round-trip. The server fetches each role folder's file list once (paginated), then matches all song titles against those lists in memory. No per-song API calls.
