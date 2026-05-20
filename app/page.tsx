@@ -1926,6 +1926,58 @@ function SetupTab({
             googleToken={googleToken}
           />
         )}
+
+        {/* ── 8. Export / Import ───────────────────────────────────────────── */}
+        <section className={sectionCls}>
+          <h2 className="text-lg font-bold mb-4">Export / Import</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Save your show as a <code>.json</code> file for backup or sharing between devices.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              className="px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+              onClick={() => {
+                const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const slug = config.showInfo.bandName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'show';
+                a.download = `${slug}.showrunr.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Export Show (.json)
+            </button>
+            <label className="px-4 py-2 text-sm font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors cursor-pointer">
+              Import Show (.json)
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    try {
+                      const parsed = JSON.parse(reader.result as string) as AppConfig;
+                      if (!parsed.stagePlot || !parsed.inputs || !parsed.setlist) {
+                        alert('Invalid show file — missing required sections.');
+                        return;
+                      }
+                      updateConfig(() => withStableIds(parsed));
+                    } catch {
+                      alert('Could not read file — invalid JSON.');
+                    }
+                  };
+                  reader.readAsText(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+        </section>
       </div>
     </div>
   );
