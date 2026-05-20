@@ -16,6 +16,7 @@ export interface StageSlot {
 }
 
 export interface InputChannel {
+  id?: string;
   ch: number;
   inst: string;
   mic: string;
@@ -24,6 +25,7 @@ export interface InputChannel {
 }
 
 export interface MonitorMix {
+  id?: string;
   mix: number;
   name: string;
   needs: string;
