@@ -45,16 +45,16 @@ export async function POST(request: NextRequest) {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    if (res.status === 401 || res.status === 403) {
-      throw new DriveAuthError();
-    }
-
+    // Export too large (>10MB Google limit) — Google returns 403 for oversized exports
     if (res.status === 413 || (res.status === 403 && exportMime)) {
-      // Export too large (>10MB Google limit)
       return Response.json(
         { error: 'export_too_large', fileId: body.fileId },
         { status: 413 },
       );
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      throw new DriveAuthError();
     }
 
     if (!res.ok) {

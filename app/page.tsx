@@ -829,23 +829,31 @@ function ChartNavigator({
 function ChartLink({ chart, isOffline }: { chart: Chart; isOffline: boolean }) {
   const [cachedUrl, setCachedUrl] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
+  const blobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let revoked = false;
+    let cancelled = false;
     getCachedChartUrl(chart).then((url) => {
-      if (!revoked) {
+      if (!cancelled) {
+        // Revoke previous blob URL before setting new one
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = url;
         setCachedUrl(url);
         setChecked(true);
+      } else if (url) {
+        URL.revokeObjectURL(url);
       }
     }).catch(() => {
-      if (!revoked) setChecked(true);
+      if (!cancelled) setChecked(true);
     });
     return () => {
-      revoked = true;
-      if (cachedUrl) URL.revokeObjectURL(cachedUrl);
+      cancelled = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart.fileId, chart.modifiedTime]);
+  }, [chart.fileId, chart.modifiedTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
   const href = cachedUrl ?? chart.url;
@@ -1970,17 +1978,17 @@ function OfflineSection({
         Cache charts for offline use at the gig. Requires an active internet connection to download.
       </p>
 
-      {downloading && progress ? (
+      {downloading ? (
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-gray-200 rounded-full h-2.5">
               <div
                 className="bg-black h-2.5 rounded-full transition-all duration-300"
-                style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+                style={{ width: `${progress && progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
               />
             </div>
             <span className="text-xs font-mono text-gray-500 shrink-0">
-              {progress.done}/{progress.total}
+              {progress ? `${progress.done}/${progress.total}` : 'Starting...'}
             </span>
           </div>
           <button

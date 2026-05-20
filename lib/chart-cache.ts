@@ -62,7 +62,15 @@ export async function downloadAllCharts(
   onProgress: (progress: DownloadProgress) => void,
   signal?: AbortSignal,
 ): Promise<DownloadProgress> {
-  const cacheable = charts.filter((c) => chartCacheKey(c) !== null);
+  // Dedupe by fileId — same file shared across songs only needs one download
+  const seen = new Set<string>();
+  const cacheable = charts.filter((c) => {
+    const key = chartCacheKey(c);
+    if (!key || !c.fileId) return false;
+    if (seen.has(c.fileId)) return false;
+    seen.add(c.fileId);
+    return true;
+  });
   const progress: DownloadProgress = {
     total: cacheable.length,
     done: 0,
