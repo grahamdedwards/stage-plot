@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   BandConfig,
   StagePosition,
@@ -381,10 +381,18 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
 
   // Navigator state
   const [navigatorSongIdx, setNavigatorSongIdx] = useState<number | null>(null);
-  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'all';
+    return sessionStorage.getItem('stageplot-role-filter') ?? 'all';
+  });
+  const handleRoleChange = useCallback((role: string) => {
+    setRoleFilter(role);
+    sessionStorage.setItem('stageplot-role-filter', role);
+  }, []);
 
-  // Check if any song has charts (pre-resolved at setup time)
-  const hasAnyCharts = band.setlist?.some((s) => s.charts && s.charts.length > 0) ?? false;
+  // Show chart column if any song has charts (resolved) — column stays visible even
+  // if zero matches so users see the gray "none" state and can still open navigator
+  const showChartsColumn = band.setlist?.some((s) => s.charts !== undefined) ?? false;
 
   // Collect all unique roles across all songs for filter dropdown
   const allRoles = Array.from(new Set(
@@ -493,7 +501,7 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                     <th className="px-4 py-3 font-bold">Song</th>
                     <th className="px-4 py-3 font-bold">Lead</th>
                     <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
-                    {hasAnyCharts && <th className="px-4 py-3 font-bold w-12">Charts</th>}
+                    {showChartsColumn && <th className="px-4 py-3 font-bold w-12">Charts</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -524,7 +532,7 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                         <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
                           {song.notes}
                         </td>
-                        {hasAnyCharts && (
+                        {showChartsColumn && (
                           <td className="px-4 py-2">
                             {songCharts.length > 0 ? (
                               <button
@@ -564,7 +572,7 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                 roleFilter={roleFilter}
                 allRoles={allRoles}
                 onChangeIdx={setNavigatorSongIdx}
-                onChangeRole={setRoleFilter}
+                onChangeRole={handleRoleChange}
                 onClose={() => setNavigatorSongIdx(null)}
               />
             )}
@@ -793,6 +801,24 @@ function SetupTab({
       setChartsResolving(false);
     }
   }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig]);
+
+  // Auto-resolve charts when setlist titles change (debounced 1s)
+  const titlesSignature = config.setlist.map((s) => s.title).join('\0');
+  const prevSignatureRef = useRef(titlesSignature);
+  const resolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!canResolveCharts) return;
+    if (titlesSignature === prevSignatureRef.current) return;
+    prevSignatureRef.current = titlesSignature;
+
+    if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current);
+    resolveTimerRef.current = setTimeout(() => {
+      resolveCharts();
+    }, 1000);
+
+    return () => { if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current); };
+  }, [titlesSignature, canResolveCharts, resolveCharts]);
 
   // Extract folder ID from URL or bare ID
   const parseFolderId = (input: string): string | null => {
