@@ -1,6 +1,6 @@
 # Design: Agent-as-Show-Codesigner (BYOA)
 
-**Status:** Draft v1.1 — cross-check fixes applied
+**Status:** Draft v1.2 — 9-position grid, try-it mode, zone philosophy
 **Depends on:** None (additive to current Setup tab)
 **Scope:** Natural language chat interface for populating and editing show configuration
 
@@ -12,7 +12,7 @@ Setting up a show config today means filling in tables row by row — names, pos
 
 Musicians think in sentences: *"Graham is lead singing and playing guitar, DSC. Terry plays bass, put him to the drummer's left."* The agent translates that into structured data — stage positions, input channels, monitor mixes — and writes it directly to the config. The user sees the results live and can keep refining with follow-up instructions.
 
-This is BYOA (Bring Your Own API key) — the user provides their own Claude API key. No backend AI costs for us, no key management, no rate-limit headaches.
+The primary mode is BYOA (Bring Your Own API key) — the user provides their own Claude API key. For first-time users, a **"Try it" mode** offers a handful of free calls using a server-side key so people can experience the magic before committing to BYOA.
 
 ---
 
@@ -74,10 +74,10 @@ The agent doesn't call APIs — it returns structured tool calls that the app ap
 
 ```ts
 // Tool: update_stage_plot
-// JSON Schema constrains pos to the 6 UI-supported values only
+// JSON Schema constrains pos to the 9 grid positions
 {
   stagePlot: StageSlot[]  // full replacement — agent sends complete array
-  // pos enum in schema: ["USR", "USC", "USL", "DSR", "DSC", "DSL"]
+  // pos enum in schema: ["USR", "USC", "USL", "MSR", "MSC", "MSL", "DSR", "DSC", "DSL"]
 }
 
 // Tool: update_inputs
@@ -164,11 +164,14 @@ Claude's tool use requires a strict request/response loop: when the model return
 
 ### `POST /api/agent/chat`
 
-Proxies the Claude API call. The API key is sent from the client per-request (never stored server-side).
+Proxies the Claude API call. Supports two modes:
+
+1. **BYOA mode:** Client sends `Authorization: Bearer <claude-api-key>` header. Proxy forwards it to Anthropic.
+2. **Try-it mode:** No `Authorization` header. Proxy checks IP quota, and if remaining, uses the server-side `CLAUDE_TRYIT_KEY`. Returns `X-Tryit-Remaining: N` header so the client can show the badge.
 
 ```ts
 // Request
-// Authorization: Bearer <claude-api-key> (in header, not body)
+// Authorization: Bearer <claude-api-key> (optional — omit for try-it mode)
 {
   messages: Message[];       // conversation history
   currentConfig: AppConfig;  // current show state for context
@@ -176,9 +179,10 @@ Proxies the Claude API call. The API key is sent from the client per-request (ne
 }
 
 // Response: streamed Claude API response with tool_use blocks
+// Headers: X-Tryit-Remaining (try-it mode only)
 ```
 
-**Why a server-side proxy?** The Claude API doesn't support browser CORS. The proxy forwards the `Authorization` header to Anthropic and streams the response back. The key transits the server but is never logged or stored.
+**Why a server-side proxy?** The Claude API doesn't support browser CORS. The proxy forwards the request to Anthropic and streams the response back. In BYOA mode, the key transits the server but is never logged or stored. In try-it mode, the server-side key never leaves the server.
 
 ### Rate Limiting & Abuse Controls
 
@@ -233,7 +237,24 @@ Collapsible panel at the top of the Setup tab, above the form sections:
 
 **Below the chat panel,** the existing form sections (Stage Plot, Input List, etc.) update live as the user approves agent changes. The user can also edit forms directly — the agent sees those changes in its next turn.
 
-### API Key Storage
+### "Try It" Mode (Free Tier)
+
+New users get a limited number of free agent calls before needing their own API key. This eliminates the "go create an Anthropic account" wall before the magic moment.
+
+**How it works:**
+- Server-side Claude API key stored as a Vercel env var (`CLAUDE_TRYIT_KEY`), never exposed to the client
+- Per-IP call cap: **10 messages** (tracked server-side via KV or in-memory Map with TTL). Generous enough to set up one full show, tight enough to prevent abuse.
+- When the cap is reached, chat shows: *"You've used your free messages. Enter your own Claude API key to keep going."* with a link to the Anthropic console.
+- Try-it requests use the same `/api/agent/chat` proxy route — the server detects the absence of a client-provided key and falls back to the server-side key if the IP has remaining quota.
+- **No auth required.** No sign-up, no email, no cookies beyond the IP tracking. Friction-free.
+
+**Cost control:**
+- Use `claude-sonnet-4-5-20250514` for try-it calls (cheaper than Opus, still excellent for this task)
+- Max tokens per try-it response: 2048 (sufficient for tool calls + brief explanation)
+- Server-side monthly spend cap via Anthropic usage limits as a safety net
+- If the env var is unset, try-it mode is simply unavailable — BYOA only
+
+### API Key Storage (BYOA Mode)
 
 **Default: session-only (in memory).** Key lives in a React state variable and is lost on page close. This is the safest default — no persistence, no XSS exfiltration window beyond the current tab.
 
@@ -249,9 +270,9 @@ Collapsible panel at the top of the Setup tab, above the form sections:
 ### First-Time UX
 
 1. User expands "AI Show Designer" panel
-2. Prompted for Claude API key (with link to Anthropic console to get one)
-3. Key validated with a test call
-4. Chat is ready — placeholder suggests what to say
+2. **Try-it mode available?** Chat is immediately ready — placeholder suggests what to say. Small "N free messages remaining" badge.
+3. **Try-it exhausted or unavailable?** Prompted for Claude API key (with link to Anthropic console to get one). Key validated with a test call.
+4. User can switch to BYOA at any time (even with free messages remaining) by entering their own key.
 
 ---
 
@@ -263,20 +284,37 @@ musicians and engineers set up shows by translating natural language
 descriptions into structured technical configurations.
 
 You understand:
-- Stage positions (v1 — only these 6 are supported by the UI):
-  Upstage: USR (upstage right), USC (upstage center), USL (upstage left)
+- Stage positions — a 3x3 zone grid:
+  Upstage:   USR (upstage right), USC (upstage center), USL (upstage left)
+  Mid-stage: MSR (mid-stage right), MSC (mid-stage center), MSL (mid-stage left)
   Downstage: DSR (downstage right), DSC (downstage center), DSL (downstage left)
-  Do NOT use MSR/MSC/MSL, PIT, FOH, or OTHER — those exist in the
-  type system but are not yet renderable in the stage plot UI or
-  editable in the Setup tab. Each position must have exactly one
-  occupant — the stage plot renderer uses position as a unique key,
-  so duplicates silently overwrite. If a band has more than 6
-  members, place the primary 6 on the grid and add overflow members
-  to the General Notes section (e.g., "Horns (3 players) share DSR
-  — Chris on sax, Konstantins on trumpet, Luke on trombone").
+
+  Do NOT use PIT, FOH, or OTHER — those exist in the type system
+  but are not renderable in the stage plot UI.
+
   Stage left/right is from the performer's perspective facing the
-  audience. Audience's right = stage left = USL/DSL. Audience's
-  left = stage right = USR/DSR.
+  audience. Audience's right = stage left = USL/MSL/DSL. Audience's
+  left = stage right = USR/MSR/DSR.
+
+- ZONE PHILOSOPHY: The stage plot is a spatial overview, not a
+  detailed inventory. Each position is a ZONE, not a chair. A zone
+  can represent one person or a section of players. When there are
+  more people than positions, group them by section into a zone and
+  use the zone's name/role to describe the group (e.g., name: "Horns",
+  role: "Sax, Tpt, Tbn"). Individual detail (per-player mics,
+  channels, stands) belongs in the Input List, not the stage plot.
+
+  Each position must have exactly one occupant — the stage plot
+  renderer uses position as a unique key, so duplicates silently
+  overwrite. With 9 zones, most bands fit comfortably. For very
+  large ensembles (big bands, orchestras), use zones for sections
+  (e.g., "Brass" at MSR, "Strings" at MSL, "Woodwinds" at USR)
+  and detail individuals in the Input List.
+
+  The mid-stage row renders conditionally — it only appears when at
+  least one MS position is occupied. For small bands (6 or fewer),
+  prefer using just US + DS rows to keep the plot compact.
+
 - Standard instrument mic'ing (SM57 on snare, kick drum mic, DI for
   bass and keys, SM58/Beta58 for vocals, condensers for overheads,
   clip mics for horns)
@@ -288,7 +326,8 @@ You understand:
   vocalist) — highlighted visually on the stage plot
 
 When the user describes their band, you should:
-1. Set up stage positions based on their description
+1. Set up stage positions based on their description, using the zone
+   model — group sections into zones, detail individuals in inputs
 2. Infer reasonable defaults for anything not specified (mic types,
    stand types, monitor groupings)
 3. Auto-number channels sequentially (drums first, then bass, keys,
@@ -318,10 +357,12 @@ The interesting challenge: the agent needs to understand relative spatial instru
 |---|---|
 | "to the drummer's left" | If drummer is USC, "left" (from performer perspective) = USL |
 | "opposite side of the stage" | If reference is USR, opposite = USL (or DSL if also downstage) |
-| "behind the horn section" | If horns are DSR, "behind" = upstage = USR |
+| "behind the horn section" | If horns are DSR, "behind" = upstage = MSR or USR |
 | "front and center" | DSC |
 | "put the rhythm section upstage" | Drums USC, bass USL or USR, keys on the other side |
-| "horn section stage right" | DSR or USR depending on context |
+| "horn section stage right" | DSR, MSR, or USR depending on context |
+| "between the drums and the singer" | If drums USC and singer DSC, mid-stage = MSC |
+| "spread the band out, we have a big stage" | Use all 3 rows — rhythm US, soloists MS, frontline DS |
 
 The system prompt includes these conventions. The model handles this well with standard stage direction vocabulary. Edge cases (e.g., "put them near Graham" without knowing Graham's position) are handled by asking a clarifying question.
 
@@ -351,7 +392,9 @@ New runtime-only state:
 
 | Scenario | Behavior |
 |---|---|
-| Invalid API key | Test call fails. Show error with link to Anthropic console. |
+| Invalid API key (BYOA) | Test call fails. Show error with link to Anthropic console. |
+| Try-it quota exhausted | Chat disabled with prompt to enter own API key. No retry, no reset. |
+| Server-side key missing/invalid | Try-it mode silently unavailable. UI shows BYOA flow only. |
 | API rate limit hit | Show the error from Claude API. User waits or checks their plan. |
 | Agent returns invalid config data | Runtime JSON Schema validation before preview. Invalid data shown as error in chat, not previewed or applied. |
 | User edits form while chat is open | Config revision hash detects staleness. Preview warns "Config changed since suggestion" with option to apply anyway or regenerate. |
@@ -366,7 +409,8 @@ New runtime-only state:
 
 ## Security
 
-- **API key in transit:** Sent to `/api/agent/chat` over HTTPS, used for one Claude API call, not stored server-side. Same security model as any BYOA integration.
+- **BYOA key in transit:** Sent to `/api/agent/chat` over HTTPS, used for one Claude API call, not stored server-side. Same security model as any BYOA integration.
+- **Try-it key:** Server-side only (`CLAUDE_TRYIT_KEY` env var). Never sent to the client, never logged. Per-IP quota prevents runaway spend.
 - **No key in URL:** API key never included in shareable URLs or config encoding.
 - **No key in logs:** Server route must not log request bodies.
 - **Config injection:** Agent tool outputs are validated at runtime using JSON Schema validators (not TypeScript interfaces, which are erased at build time). Each tool has a corresponding schema that checks: positions are valid `StagePosition` enum values, channel numbers are integers, required string fields are non-empty, arrays contain only well-typed objects. Invalid tool output is shown as an error in the chat, not previewed or applied. Tool definitions use `strict: true` mode (Claude's strict tool use) to further constrain output shape at the model level.
@@ -396,7 +440,7 @@ New runtime-only state:
 
 ## Out of Scope
 
-- Hosting/running an AI model (BYOA only)
+- Hosting/running an AI model (try-it uses our key with hard caps; BYOA for ongoing use)
 - Storing conversation history across sessions
 - Multi-user collaborative chat
 - Agent access to Google Drive or external services
