@@ -1,6 +1,6 @@
 # Design: Batch Chart Resolution & Navigator
 
-**Status:** Draft v1.0 — awaiting review
+**Status:** Draft v1.1 — cross-check fixes applied
 **Depends on:** PR #1 (Charts / Lead Sheets — Google Drive integration)
 **Scope:** Setup-time batch resolution + showtime chart navigator
 
@@ -36,24 +36,42 @@ Chart resolution fires automatically when **all three conditions** are met:
 
 #### Resolution Flow
 
-```
-For each song in setlist:
-  POST /api/drive/batch
-    body: { folderId, songTitles: ["Superstition", "Brick House", ...] }
+Single request sends the full setlist; server resolves all songs in one pass:
 
-Response: {
-  "Superstition": [
-    { role: "Guitar", url: "...", label: "Superstition.pdf", dupeCount: 1 },
-    { role: "Lyrics", url: "...", label: "Superstition - lyrics.docx", dupeCount: 1 }
-  ],
-  "Brick House": [
-    { role: "Horns", url: "...", label: "Brick House Bb.pdf", dupeCount: 2 }
-  ],
-  "Some Song": []
-}
+```
+POST /api/drive/batch
+  body: {
+    folderId: "...",
+    songs: [
+      { idx: 0, title: "Superstition" },
+      { idx: 1, title: "Brick House" },
+      { idx: 5, title: "Superstition" },   // reprisal — same title, different slot
+      ...
+    ]
+  }
+
+Response: [
+  {
+    idx: 0,
+    charts: [
+      { role: "Guitar", url: "...", label: "Superstition.pdf", fileId: "abc", dupeCount: 1 },
+      { role: "Lyrics", url: "...", label: "Superstition - lyrics.docx", fileId: "def", dupeCount: 1 }
+    ]
+  },
+  {
+    idx: 1,
+    charts: [
+      { role: "Horns", url: "...", label: "Brick House Bb.pdf", fileId: "ghi", dupeCount: 2 }
+    ]
+  },
+  {
+    idx: 5,
+    charts: [...]  // same charts as idx 0 — resolved identically but returned per-slot
+  }
+]
 ```
 
-**Why a batch endpoint?** One round-trip instead of N. The server fans out to role folders in parallel, same as today, but for all songs at once.
+**Why a batch endpoint?** One client round-trip. The server fetches each role folder's file list once (paginated), then matches all song titles against those lists in memory. No per-song API calls.
 
 #### Storage
 
@@ -130,24 +148,29 @@ Google Drive files can't be reliably iframed (CORS, auth, mixed content). The na
 
 ### `POST /api/drive/batch`
 
-Accepts a list of song titles, searches all role subfolders for each, returns a map.
+Accepts song slots (idx + title), searches all role subfolders, returns results keyed by idx to handle duplicate titles (reprises, medleys, same song in two sets).
 
 ```ts
 // Request
 {
-  folderId: string;         // charts root folder ID
-  songTitles: string[];     // ["Superstition", "Brick House", ...]
+  folderId: string;
+  songs: { idx: number; title: string }[];
 }
 
 // Response
 {
-  [songTitle: string]: Chart[];  // keyed by original title (not normalized)
+  results: {
+    idx: number;
+    charts: Chart[];  // includes fileId and mimeType for offline cache
+  }[];
 }
 ```
 
-**Implementation:** Same fuzzy matching as the existing `/api/drive` route. Fetches the file list from each role folder once, then matches all song titles against it client-side. This is O(roles) API calls regardless of song count, not O(songs x roles).
+**Implementation:** Same fuzzy matching as the existing `/api/drive` route. Server fetches each role folder's full file listing once (paginated via `nextPageToken`), then matches all song titles against those lists in memory.
 
-**Optimization:** Instead of querying per-song, query each role folder once (get all files), then match all songs against that list in memory. For 8 role folders, that's 8 Drive API calls total — independent of setlist length.
+**Complexity:** O(roleFolders x pages) Drive API calls. For the 8 canonical folders with <100 files each, that's 8 calls. Extensible role folders and large folders with pagination increase linearly. Independent of setlist length — a 50-song setlist costs the same as a 10-song setlist.
+
+All requests include `supportsAllDrives=true` and `includeItemsFromAllDrives=true` for Shared Drive compatibility.
 
 ---
 
@@ -177,7 +200,14 @@ The on-demand per-tap loading in PR #1 becomes dead code. It gets replaced by:
 | Drive folder has new files after initial resolution | Stale until "Refresh Charts" is clicked. No auto-polling. |
 | Token expired during batch resolution | Show error banner with "Reconnect Google Drive" action. Partial results kept. |
 | Shared link opened by someone without Drive access | Charts work — links are in the URL. They can open Drive files if they have access to the Drive folder (separate from app auth). |
-| 50+ song setlist | Batch endpoint handles it — still only 8 Drive API calls (one per role folder). |
+| 50+ song setlist | Batch endpoint handles it — O(roleFolders x pages) Drive calls, independent of song count. |
+| Duplicate song titles (reprises) | Keyed by idx, not title. Each slot gets its own chart bindings (identical charts, separate entries). |
+
+---
+
+## Future Considerations
+
+- **URL size guardrail:** With chart data in the config, the shareable URL can grow large. If encoded config exceeds ~8KB, fall back to JSON export/import instead of share URL. Not blocking — current worst case (~48KB) still works in most browsers but should be guarded.
 
 ---
 
