@@ -1940,23 +1940,26 @@ function OfflineSection({
     setDownloading(true);
     setProgress(null);
 
-    // Register SW before first download
-    await registerServiceWorker();
+    try {
+      // Register SW before first download
+      await registerServiceWorker();
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-    const result = await downloadAllCharts(
-      charts,
-      googleToken.access_token,
-      (p) => setProgress({ ...p }),
-      controller.signal,
-    );
+      const result = await downloadAllCharts(
+        charts,
+        googleToken.access_token,
+        (p) => setProgress({ ...p }),
+        controller.signal,
+      );
 
-    setProgress(result);
-    setDownloading(false);
-    abortRef.current = null;
-    refreshStats();
+      setProgress(result);
+    } finally {
+      setDownloading(false);
+      abortRef.current = null;
+      refreshStats();
+    }
   };
 
   const handleCancel = () => {
