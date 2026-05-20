@@ -463,6 +463,9 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
     (band.setlist ?? []).flatMap((s) => (s.charts ?? []).map((c) => c.role))
   )).sort();
 
+  // Reset stale filter if the persisted role no longer exists in current charts
+  const effectiveRoleFilter = roleFilter === 'all' || allRoles.includes(roleFilter) ? roleFilter : 'all';
+
   return (
     <div className="p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-12">
@@ -556,7 +559,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
               <div className="flex items-center gap-2 print:hidden">
                 {allRoles.length > 0 && (
                   <select
-                    value={roleFilter}
+                    value={effectiveRoleFilter}
                     onChange={(e) => handleRoleChange(e.target.value)}
                     className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
                   >
@@ -580,9 +583,9 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
               {legend.map(([name, color]) => (
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
-              {roleFilter !== 'all' && (
+              {effectiveRoleFilter !== 'all' && (
                 <span className="ml-auto text-xs text-gray-500 print:hidden">
-                  {(band.setlist ?? []).filter((s) => (s.charts ?? []).some((c) => c.role === roleFilter)).length} of {band.setlist?.length ?? 0} songs have {roleFilter} charts
+                  {(band.setlist ?? []).filter((s) => (s.charts ?? []).some((c) => c.role === effectiveRoleFilter)).length} of {band.setlist?.length ?? 0} songs have {effectiveRoleFilter} charts
                 </span>
               )}
             </div>
@@ -638,7 +641,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
                       const singers = song.lead.split('+').map((n) => n.trim());
                       const songCharts = song.charts ?? [];
                       const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
-                      const hasRoleChart = roleFilter === 'all' || songCharts.some((c) => c.role === roleFilter);
+                      const hasRoleChart = effectiveRoleFilter === 'all' || songCharts.some((c) => c.role === effectiveRoleFilter);
                       return (
                         <tr key={song.id ?? song.position} className={`hover:bg-gray-50 transition-opacity ${hasRoleChart ? '' : 'opacity-30'}`}>
                           <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
@@ -694,7 +697,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
               <ChartNavigator
                 setlist={band.setlist}
                 currentIdx={navigatorSongIdx}
-                roleFilter={roleFilter}
+                roleFilter={effectiveRoleFilter}
                 allRoles={allRoles}
                 isOffline={isOffline}
                 onChangeIdx={setNavigatorSongIdx}
