@@ -553,21 +553,38 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
                 <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">5</span>
                 Run Order / Setlist
               </h2>
-              <button
-                onClick={() => setReorderMode(!reorderMode)}
-                className={`px-3 py-1.5 text-xs font-bold rounded transition-colors print:hidden ${
-                  reorderMode
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
-                }`}
-              >
-                {reorderMode ? 'Done' : 'Reorder'}
-              </button>
+              <div className="flex items-center gap-2 print:hidden">
+                {allRoles.length > 0 && (
+                  <select
+                    value={roleFilter}
+                    onChange={(e) => handleRoleChange(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
+                  >
+                    <option value="all">All Parts</option>
+                    {allRoles.map((r) => <option key={r} value={r}>My Charts: {r}</option>)}
+                  </select>
+                )}
+                <button
+                  onClick={() => setReorderMode(!reorderMode)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded transition-colors ${
+                    reorderMode
+                      ? 'bg-black text-white hover:bg-gray-800'
+                      : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                  }`}
+                >
+                  {reorderMode ? 'Done' : 'Reorder'}
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
               {legend.map(([name, color]) => (
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
+              {roleFilter !== 'all' && (
+                <span className="ml-auto text-xs text-gray-500 print:hidden">
+                  {(band.setlist ?? []).filter((s) => (s.charts ?? []).some((c) => c.role === roleFilter)).length} of {band.setlist?.length ?? 0} songs have {roleFilter} charts
+                </span>
+              )}
             </div>
             {reorderMode ? (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -621,8 +638,9 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
                       const singers = song.lead.split('+').map((n) => n.trim());
                       const songCharts = song.charts ?? [];
                       const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
+                      const hasRoleChart = roleFilter === 'all' || songCharts.some((c) => c.role === roleFilter);
                       return (
-                        <tr key={song.id ?? song.position} className="hover:bg-gray-50">
+                        <tr key={song.id ?? song.position} className={`hover:bg-gray-50 transition-opacity ${hasRoleChart ? '' : 'opacity-30'}`}>
                           <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
                           <td className="px-4 py-2 font-medium">
                             {song.title}
