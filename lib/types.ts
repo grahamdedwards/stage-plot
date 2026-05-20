@@ -45,6 +45,7 @@ export interface Chart {
 }
 
 export interface SetlistSong {
+  id?: string;              // stable identity for DnD + navigator; guaranteed at runtime
   position: number;
   title: string;
   lead: string;           // singer name(s) — e.g. "Rachel" or "Graham + Rachel"

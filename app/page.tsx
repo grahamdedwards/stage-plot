@@ -1,6 +1,21 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type {
   BandConfig,
   StagePosition,
@@ -11,6 +26,7 @@ import type {
   GeneralNote,
   Chart,
 } from '@/lib/types';
+import { ensureSetlistSongIds, moveSetlistSong } from '@/lib/setlist';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
 import { getBand } from '@/lib/bands';
@@ -119,22 +135,28 @@ function decodeConfig(s: string): AppConfig | null {
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════════════
+function withSongIds(config: AppConfig): AppConfig {
+  const setlist = ensureSetlistSongIds(config.setlist);
+  return setlist === config.setlist ? config : { ...config, setlist };
+}
+
 function initConfig(): AppConfig {
-  if (typeof window === 'undefined') return bandToConfig(fallbackBand);
+  if (typeof window === 'undefined') return withSongIds(bandToConfig(fallbackBand));
   const params = new URLSearchParams(window.location.search);
   const urlConfig = params.get('config');
   if (urlConfig) {
     const decoded = decodeConfig(urlConfig);
     if (decoded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(decoded));
-      return decoded;
+      const cfg = withSongIds(decoded);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+      return cfg;
     }
   }
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) {
-    try { return JSON.parse(stored); } catch { /* fall through */ }
+    try { return withSongIds(JSON.parse(stored)); } catch { /* fall through */ }
   }
-  return bandToConfig(fallbackBand);
+  return withSongIds(bandToConfig(fallbackBand));
 }
 
 function initGoogleToken(): GoogleToken | null {
@@ -236,7 +258,7 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' ? (
-        <ShowTab band={band} printSections={printSections} showInfo={config.showInfo} />
+        <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       ) : (
         <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
       )}
@@ -370,7 +392,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
   );
 }
 
-function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string } }) {
+function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string }; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -389,6 +411,21 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
     setRoleFilter(role);
     sessionStorage.setItem('stageplot-role-filter', role);
   }, []);
+
+  // Reorder mode
+  const [reorderMode, setReorderMode] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+  const songIds = setlist.map((s) => s.id!);
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = songIds.indexOf(active.id as string);
+    const to = songIds.indexOf(over.id as string);
+    if (from !== -1 && to !== -1) onReorder(from, to);
+  }, [songIds, onReorder]);
 
   // Show chart column if any song has charts (resolved) — column stays visible even
   // if zero matches so users see the gray "none" state and can still open navigator
@@ -484,10 +521,22 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
 
         {band.setlist && band.setlist.length > 0 && (
           <section className={printSections.setlist ? '' : 'no-print'}>
-            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-              <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">5</span>
-              Run Order / Setlist
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <span className="w-8 h-8 bg-black text-white flex items-center justify-center rounded text-sm">5</span>
+                Run Order / Setlist
+              </h2>
+              <button
+                onClick={() => setReorderMode(!reorderMode)}
+                className={`px-3 py-1.5 text-xs font-bold rounded transition-colors print:hidden ${
+                  reorderMode
+                    ? 'bg-black text-white hover:bg-gray-800'
+                    : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                }`}
+              >
+                {reorderMode ? 'Done' : 'Reorder'}
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2 mb-4">
               {legend.map(([name, color]) => (
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
@@ -497,74 +546,88 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    {reorderMode && <th className="w-8"></th>}
                     <th className="px-4 py-3 font-bold w-10">#</th>
                     <th className="px-4 py-3 font-bold">Song</th>
                     <th className="px-4 py-3 font-bold">Lead</th>
                     <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
                     {showChartsColumn && <th className="px-4 py-3 font-bold w-12">Charts</th>}
+                    {reorderMode && <th className="w-12"></th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y">
-                  {band.setlist.map((song, idx) => {
-                    const singers = song.lead.split('+').map((n) => n.trim());
-                    const songCharts = song.charts ?? [];
-                    const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
-                    return (
-                      <tr key={song.position} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
-                        <td className="px-4 py-2 font-medium">
-                          {song.title}
-                          {song.sceneNote && (
-                            <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-semibold">
-                              {song.sceneNote}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-wrap gap-1">
-                            {singers.map((singer) => (
-                              <span key={singer} className={`px-1.5 py-0.5 rounded text-xs font-semibold ${getSingerColor(singer, colorMap)}`}>
-                                {singer}
+                {reorderMode ? (
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
+                      <tbody className="divide-y">
+                        {band.setlist.map((song, idx) => (
+                          <ShowSortableRow
+                            key={song.id!}
+                            song={song}
+                            idx={idx}
+                            total={band.setlist?.length ?? 0}
+                            showChartsColumn={showChartsColumn}
+                            colorMap={colorMap}
+                            onNavigate={setNavigatorSongIdx}
+                            onMoveUp={() => onReorder(idx, idx - 1)}
+                            onMoveDown={() => onReorder(idx, idx + 1)}
+                          />
+                        ))}
+                      </tbody>
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  <tbody className="divide-y">
+                    {band.setlist.map((song, idx) => {
+                      const singers = song.lead.split('+').map((n) => n.trim());
+                      const songCharts = song.charts ?? [];
+                      const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
+                      return (
+                        <tr key={song.id ?? song.position} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
+                          <td className="px-4 py-2 font-medium">
+                            {song.title}
+                            {song.sceneNote && (
+                              <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-semibold">
+                                {song.sceneNote}
                               </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
-                          {song.notes}
-                        </td>
-                        {showChartsColumn && (
+                            )}
+                          </td>
                           <td className="px-4 py-2">
-                            {songCharts.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {singers.map((singer) => (
+                                <span key={singer} className={`px-1.5 py-0.5 rounded text-xs font-semibold ${getSingerColor(singer, colorMap)}`}>
+                                  {singer}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
+                            {song.notes}
+                          </td>
+                          {showChartsColumn && (
+                            <td className="px-4 py-2">
                               <button
                                 onClick={() => setNavigatorSongIdx(idx)}
                                 className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-                                  hasDupes
-                                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                  songCharts.length > 0
+                                    ? hasDupes
+                                      ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                    : 'text-gray-200 hover:text-gray-400 hover:bg-gray-100'
                                 }`}
-                                title={`${songCharts.length} chart${songCharts.length > 1 ? 's' : ''}`}
+                                title={songCharts.length > 0 ? `${songCharts.length} chart${songCharts.length > 1 ? 's' : ''}` : 'No charts'}
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
                                 </svg>
                               </button>
-                            ) : (
-                              <button
-                                onClick={() => setNavigatorSongIdx(idx)}
-                                className="w-8 h-8 flex items-center justify-center text-gray-200 hover:text-gray-400 hover:bg-gray-100 rounded transition-colors"
-                                title="No charts"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
-                                </svg>
-                              </button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                )}
               </table>
             </div>
 
@@ -734,7 +797,215 @@ function ChartNavigator({
 // SETUP TAB
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+// SHOW SORTABLE ROW (used in Show tab reorder mode)
+// ════════════════════════════════════════════════════════════════════════════
+
+function ShowSortableRow({
+  song, idx, total, showChartsColumn, colorMap, onNavigate, onMoveUp, onMoveDown,
+}: {
+  song: SetlistSong;
+  idx: number;
+  total: number;
+  showChartsColumn: boolean;
+  colorMap: Map<string, string>;
+  onNavigate: (idx: number) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: song.id! });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  const singers = song.lead.split('+').map((n) => n.trim());
+  const songCharts = song.charts ?? [];
+  const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
+
+  return (
+    <tr ref={setNodeRef} style={style} className="hover:bg-gray-50">
+      <td className="px-2 py-2 cursor-grab" {...attributes} {...listeners}>
+        <span className="text-gray-300 text-sm select-none">&#x2630;</span>
+      </td>
+      <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
+      <td className="px-4 py-2 font-medium">
+        {song.title}
+        {song.sceneNote && (
+          <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-semibold">
+            {song.sceneNote}
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-2">
+        <div className="flex flex-wrap gap-1">
+          {singers.map((singer) => (
+            <span key={singer} className={`px-1.5 py-0.5 rounded text-xs font-semibold ${getSingerColor(singer, colorMap)}`}>
+              {singer}
+            </span>
+          ))}
+        </div>
+      </td>
+      <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
+        {song.notes}
+      </td>
+      {showChartsColumn && (
+        <td className="px-4 py-2">
+          <button
+            onClick={() => onNavigate(idx)}
+            className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+              songCharts.length > 0
+                ? hasDupes ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                : 'text-gray-200'
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+            </svg>
+          </button>
+        </td>
+      )}
+      <td className="px-2 py-2">
+        <div className="flex flex-col items-center">
+          <button className="px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed" disabled={idx === 0} onClick={onMoveUp}>&uarr;</button>
+          <button className="px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed" disabled={idx === total - 1} onClick={onMoveDown}>&darr;</button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SORTABLE SETLIST TABLE (shared DnD logic for Setup tab)
+// ════════════════════════════════════════════════════════════════════════════
+
+function SetupSetlistTable({
+  setlist, canResolveCharts, onReorder, onUpdate, onDelete, onAdd,
+}: {
+  setlist: SetlistSong[];
+  canResolveCharts: boolean;
+  onReorder: (from: number, to: number) => void;
+  onUpdate: (idx: number, field: string, value: string) => void;
+  onDelete: (idx: number) => void;
+  onAdd: () => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+
+  const songIds = setlist.map((s) => s.id!);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = songIds.indexOf(active.id as string);
+    const to = songIds.indexOf(over.id as string);
+    if (from !== -1 && to !== -1) onReorder(from, to);
+  };
+
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="w-8"></th>
+              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-10">#</th>
+              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Title</th>
+              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Lead</th>
+              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
+              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
+              <th className="w-16"></th>
+              <th className="w-10"></th>
+            </tr>
+          </thead>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
+              <tbody>
+                {setlist.map((song, idx) => (
+                  <SetupSortableRow
+                    key={song.id!}
+                    song={song}
+                    idx={idx}
+                    total={setlist.length}
+                    canResolveCharts={canResolveCharts}
+                    onUpdate={onUpdate}
+                    onDelete={onDelete}
+                    onMoveUp={() => onReorder(idx, idx - 1)}
+                    onMoveDown={() => onReorder(idx, idx + 1)}
+                  />
+                ))}
+              </tbody>
+            </SortableContext>
+          </DndContext>
+        </table>
+      </div>
+      <button
+        className="px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors mt-3"
+        onClick={onAdd}
+      >
+        + Add Song
+      </button>
+    </>
+  );
+}
+
 const inputCls = 'w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white';
+const arrowBtn = 'px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed';
+
+function SetupSortableRow({
+  song, idx, total, canResolveCharts, onUpdate, onDelete, onMoveUp, onMoveDown,
+}: {
+  song: SetlistSong;
+  idx: number;
+  total: number;
+  canResolveCharts: boolean;
+  onUpdate: (idx: number, field: string, value: string) => void;
+  onDelete: (idx: number) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: song.id! });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+
+  const hasSongCharts = (song.charts?.length ?? 0) > 0;
+  const hasSongDupes = song.charts?.some((c) => (c.dupeCount ?? 0) > 1) ?? false;
+
+  return (
+    <tr ref={setNodeRef} style={style} className="border-b border-gray-100">
+      <td className="px-1 py-1 cursor-grab" {...attributes} {...listeners}>
+        <span className="text-gray-300 text-sm select-none">&#x2630;</span>
+      </td>
+      <td className="px-2 py-1 relative">
+        {canResolveCharts && (
+          <span className={`absolute top-1 left-0.5 w-1.5 h-1.5 rounded-full ${
+            hasSongDupes ? 'bg-orange-400' : hasSongCharts ? 'bg-green-400' : 'bg-gray-300'
+          }`} />
+        )}
+        <span className="text-xs font-mono text-gray-400">{song.position}</span>
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={song.title} onChange={(e) => onUpdate(idx, 'title', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={song.lead} onChange={(e) => onUpdate(idx, 'lead', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={song.notes ?? ''} onChange={(e) => onUpdate(idx, 'notes', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={song.sceneNote ?? ''} onChange={(e) => onUpdate(idx, 'sceneNote', e.target.value)} />
+      </td>
+      <td className="px-1 py-1">
+        <div className="flex flex-col items-center">
+          <button className={arrowBtn} disabled={idx === 0} onClick={onMoveUp} title="Move up">&uarr;</button>
+          <button className={arrowBtn} disabled={idx === total - 1} onClick={onMoveDown} title="Move down">&darr;</button>
+        </div>
+      </td>
+      <td className="px-2 py-1">
+        <button className="px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors" onClick={() => onDelete(idx)}>X</button>
+      </td>
+    </tr>
+  );
+}
+
 const labelCls = 'block text-xs font-bold text-gray-500 uppercase mb-1';
 const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:p-6';
 const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors';
@@ -1358,128 +1629,24 @@ function SetupTab({
             <p className="text-xs text-red-600 mb-3">{sheetError}</p>
           )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-12">#</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Title</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Lead</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
-                  <th className="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {config.setlist.map((song, idx) => {
-                  const hasSongCharts = (song.charts?.length ?? 0) > 0;
-                  const hasSongDupes = song.charts?.some((c) => (c.dupeCount ?? 0) > 1) ?? false;
-                  return (
-                  <tr key={idx} className="border-b border-gray-100">
-                    <td className="px-2 py-1 relative">
-                      {canResolveCharts && (
-                        <span className={`absolute top-1 left-0.5 w-1.5 h-1.5 rounded-full ${
-                          hasSongDupes ? 'bg-orange-400' : hasSongCharts ? 'bg-green-400' : 'bg-gray-300'
-                        }`} />
-                      )}
-                      <input
-                        type="number"
-                        className={inputCls}
-                        value={song.position}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.setlist];
-                            arr[idx] = { ...arr[idx], position: Number(e.target.value) };
-                            return { ...p, setlist: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={song.title}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.setlist];
-                            arr[idx] = { ...arr[idx], title: e.target.value };
-                            return { ...p, setlist: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={song.lead}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.setlist];
-                            arr[idx] = { ...arr[idx], lead: e.target.value };
-                            return { ...p, setlist: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={song.notes ?? ''}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.setlist];
-                            arr[idx] = { ...arr[idx], notes: e.target.value };
-                            return { ...p, setlist: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={song.sceneNote ?? ''}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.setlist];
-                            arr[idx] = { ...arr[idx], sceneNote: e.target.value };
-                            return { ...p, setlist: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <button
-                        className={btnRemove}
-                        onClick={() =>
-                          updateConfig((p) => ({
-                            ...p,
-                            setlist: p.setlist.filter((_, i) => i !== idx),
-                          }))
-                        }
-                      >
-                        X
-                      </button>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <button
-            className={`${btnAdd} mt-3`}
-            onClick={() =>
-              updateConfig((p) => ({
-                ...p,
-                setlist: [
-                  ...p.setlist,
-                  { position: p.setlist.length + 1, title: '', lead: '', notes: '' },
-                ],
-              }))
-            }
-          >
-            + Add Song
-          </button>
+          <SetupSetlistTable
+            setlist={config.setlist}
+            canResolveCharts={canResolveCharts}
+            onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))}
+            onUpdate={(idx, field, value) => updateConfig((p) => {
+              const arr = [...p.setlist];
+              arr[idx] = { ...arr[idx], [field]: value };
+              return { ...p, setlist: arr };
+            })}
+            onDelete={(idx) => updateConfig((p) => ({
+              ...p,
+              setlist: p.setlist.filter((_, i) => i !== idx).map((s, i) => ({ ...s, position: i + 1 })),
+            }))}
+            onAdd={() => updateConfig((p) => ({
+              ...p,
+              setlist: [...p.setlist, { id: crypto.randomUUID(), position: p.setlist.length + 1, title: '', lead: '', notes: '' }],
+            }))}
+          />
         </section>
 
         {/* ── 6. Google Drive Charts ────────────────────────────────────── */}
