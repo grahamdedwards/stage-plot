@@ -167,6 +167,17 @@ interface Chart {
 - App needs read-only access to the Charts folder tree (single Drive API call with root folder ID)
 - Auth: same Google OAuth already used for Sheets import
 
+#### First-Time Setup Flow (App-Managed Folder Creation)
+1. User clicks "Connect Google Drive" → OAuth
+2. App prompts: "Where should your Charts folder live?" → Drive folder picker
+3. App creates canonical subfolders automatically (exact, fixed spelling — no drift):
+   - `Lyrics`, `Guitar`, `Bass`, `Piano / Keys`, `Horns`, `Drums`, `Conductor`, `Other`
+4. Folder IDs (not names) stored in config → rename-proof, portable
+5. Share the config URL → other engineers get the same chart library automatically
+6. Custom roles: user can add ad-hoc roles → app creates the folder on demand
+
+This keeps fuzzy matching focused on song names only. Folder names are canonical and fixed.
+
 #### Existing Assets (Graham)
 - Notion database of lead sheets (lyrics) — migrate to `Lyrics/` folder
 - Various musicians have their own charts — migrate to role folders
