@@ -1016,8 +1016,8 @@ function SetupSetlistTable({
                 <tr className="border-b">
                   <th className="w-8"></th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-10">#</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Title</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Lead</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[160px]">Title</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Lead</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
                   <th className="w-16"></th>
@@ -1053,7 +1053,7 @@ function SetupSetlistTable({
   );
 }
 
-const inputCls = 'w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white';
+const inputCls = 'w-full px-2 py-2.5 sm:py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white';
 const arrowBtn = 'px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed';
 
 function SetupSortableRow({
@@ -1148,8 +1148,8 @@ function SetupInputTable({
                 <tr className="border-b">
                   <th className="w-8"></th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-14">Ch</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Instrument</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Mic/DI</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[140px]">Instrument</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Mic/DI</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Stand</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
                   <th className="w-16"></th>
@@ -1562,9 +1562,9 @@ function SetupTab({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Name</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Name</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Position</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Role</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Role</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-16">Mix</th>
                   <th className="text-center px-2 py-2 text-xs font-bold text-gray-500 w-14">Power</th>
                   <th className="text-center px-2 py-2 text-xs font-bold text-gray-500 w-14">Feat.</th>
