@@ -32,13 +32,16 @@ export async function GET(request: NextRequest) {
         q: `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id, name)',
         pageSize: '100',
+        supportsAllDrives: 'true',
+        includeItemsFromAllDrives: 'true',
       })}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     if (!existingRes.ok) {
       const text = await existingRes.text();
-      return Response.json({ error: `Failed to list folders: ${text}` }, { status: 502 });
+      const status = existingRes.status === 401 || existingRes.status === 403 ? 401 : 502;
+      return Response.json({ error: status === 401 ? 'Google session expired — reconnect in Setup' : `Failed to list folders: ${text}` }, { status });
     }
 
     const existing = await existingRes.json() as { files: { id: string; name: string }[] };
@@ -52,24 +55,28 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
+      const createRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?${new URLSearchParams({ supportsAllDrives: 'true' })}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [parentFolderId],
+          }),
         },
-        body: JSON.stringify({
-          name,
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [parentFolderId],
-        }),
-      });
+      );
 
       if (!createRes.ok) {
         const text = await createRes.text();
+        const status = createRes.status === 401 || createRes.status === 403 ? 401 : 502;
         return Response.json(
-          { error: `Failed to create folder "${name}": ${text}` },
-          { status: 502 },
+          { error: status === 401 ? 'Google session expired — reconnect in Setup' : `Failed to create folder "${name}": ${text}` },
+          { status },
         );
       }
 

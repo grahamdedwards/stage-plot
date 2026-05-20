@@ -56,6 +56,10 @@ export async function GET(request: NextRequest) {
 
     return Response.json(charts);
   } catch (e) {
+    // Forward upstream auth failures as 401 so the UI can show the reauth prompt
+    if (e instanceof DriveAuthError) {
+      return Response.json({ error: 'Google session expired — reconnect in Setup' }, { status: 401 });
+    }
     return Response.json(
       { error: `Drive API error: ${e instanceof Error ? e.message : String(e)}` },
       { status: 502 },
@@ -74,7 +78,15 @@ function normalize(s: string): string {
     .trim();
 }
 
+class DriveAuthError extends Error {}
+
 type DriveFile = { id: string; name: string; webViewLink: string };
+
+// Shared Drive params added to all list queries
+const SHARED_DRIVE_PARAMS = {
+  supportsAllDrives: 'true',
+  includeItemsFromAllDrives: 'true',
+};
 
 async function driveQuery(
   q: string,
@@ -85,11 +97,13 @@ async function driveQuery(
     q,
     fields: `files(${fields})`,
     pageSize: '100',
+    ...SHARED_DRIVE_PARAMS,
   });
   const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) throw new DriveAuthError();
     const text = await res.text();
     throw new Error(`Drive query failed (${res.status}): ${text}`);
   }
@@ -111,12 +125,14 @@ async function driveQueryAll(
       q,
       fields: `nextPageToken, files(${fields})`,
       pageSize: '100',
+      ...SHARED_DRIVE_PARAMS,
       ...(pageToken ? { pageToken } : {}),
     });
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) throw new DriveAuthError();
       const text = await res.text();
       throw new Error(`Drive query failed (${res.status}): ${text}`);
     }
