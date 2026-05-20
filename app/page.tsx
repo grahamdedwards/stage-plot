@@ -27,6 +27,15 @@ import type {
   Chart,
 } from '@/lib/types';
 import { ensureSetlistSongIds, moveSetlistSong, ensureInputIds, moveInput, ensureMonitorIds, moveMonitor } from '@/lib/setlist';
+import {
+  downloadAllCharts,
+  getCacheStats,
+  clearChartCache,
+  registerServiceWorker,
+  getCachedChartUrl,
+  formatBytes,
+  type DownloadProgress,
+} from '@/lib/chart-cache';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
 import { getBand } from '@/lib/bands';
@@ -195,11 +204,26 @@ export default function Page() {
     notes: true,
     setlist: true,
   });
+  const [isOffline, setIsOffline] = useState(() =>
+    typeof window !== 'undefined' ? !navigator.onLine : false
+  );
 
   // ── Persist to localStorage on change ─────────────────────────────────
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   }, [config]);
+
+  // ── Offline detection ─────────────────────────────────────────────────
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, []);
 
   const updateConfig = useCallback((fn: (prev: AppConfig) => AppConfig) => {
     setConfig((prev) => fn(prev));
@@ -261,7 +285,7 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' ? (
-        <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
+        <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       ) : (
         <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
       )}
@@ -395,7 +419,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
   );
 }
 
-function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string }; onReorder: (from: number, to: number) => void }) {
+function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string }; isOffline: boolean; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -654,6 +678,7 @@ function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: 
                 currentIdx={navigatorSongIdx}
                 roleFilter={roleFilter}
                 allRoles={allRoles}
+                isOffline={isOffline}
                 onChangeIdx={setNavigatorSongIdx}
                 onChangeRole={handleRoleChange}
                 onClose={() => setNavigatorSongIdx(null)}
@@ -682,12 +707,13 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 function ChartNavigator({
-  setlist, currentIdx, roleFilter, allRoles, onChangeIdx, onChangeRole, onClose,
+  setlist, currentIdx, roleFilter, allRoles, isOffline, onChangeIdx, onChangeRole, onClose,
 }: {
   setlist: SetlistSong[];
   currentIdx: number;
   roleFilter: string;
   allRoles: string[];
+  isOffline: boolean;
   onChangeIdx: (idx: number) => void;
   onChangeRole: (role: string) => void;
   onClose: () => void;
@@ -734,14 +760,21 @@ function ChartNavigator({
         <button onClick={onClose} className="text-sm font-bold text-gray-600 hover:text-black">
           &larr; Back to Setlist
         </button>
-        <select
-          value={roleFilter}
-          onChange={(e) => onChangeRole(e.target.value)}
-          className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
-        >
-          <option value="all">All Roles</option>
-          {allRoles.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          {isOffline && (
+            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded">
+              OFFLINE
+            </span>
+          )}
+          <select
+            value={roleFilter}
+            onChange={(e) => onChangeRole(e.target.value)}
+            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+          >
+            <option value="all">All Roles</option>
+            {allRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Song info */}
@@ -755,29 +788,9 @@ function ChartNavigator({
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         {charts.length > 0 ? (
           <div className="space-y-2 max-w-lg mx-auto">
-            {charts.map((chart) => {
-              const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
-              return (
-                <a
-                  key={`${chart.role}-${chart.url}`}
-                  href={chart.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-                >
-                  <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${color}`}>
-                    {chart.role}
-                  </span>
-                  <span className="text-sm text-gray-800 truncate flex-1">{chart.label ?? chart.role}</span>
-                  {(chart.dupeCount ?? 0) > 1 && (
-                    <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded shrink-0">
-                      {chart.dupeCount} found
-                    </span>
-                  )}
-                  <span className="text-gray-400 text-sm shrink-0">&rarr;</span>
-                </a>
-              );
-            })}
+            {charts.map((chart) => (
+              <ChartLink key={`${chart.role}-${chart.url}`} chart={chart} isOffline={isOffline} />
+            ))}
           </div>
         ) : (
           <div className="flex items-center justify-center h-32 text-gray-400 text-sm italic">
@@ -806,6 +819,75 @@ function ChartNavigator({
         </button>
       </div>
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CHART LINK — resolves cached URL or falls back to Drive URL
+// ════════════════════════════════════════════════════════════════════════════
+
+function ChartLink({ chart, isOffline }: { chart: Chart; isOffline: boolean }) {
+  const [cachedUrl, setCachedUrl] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    let revoked = false;
+    getCachedChartUrl(chart).then((url) => {
+      if (!revoked) {
+        setCachedUrl(url);
+        setChecked(true);
+      }
+    }).catch(() => {
+      if (!revoked) setChecked(true);
+    });
+    return () => {
+      revoked = true;
+      if (cachedUrl) URL.revokeObjectURL(cachedUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chart.fileId, chart.modifiedTime]);
+
+  const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
+  const href = cachedUrl ?? chart.url;
+  const unavailable = isOffline && !cachedUrl && checked;
+
+  if (unavailable) {
+    return (
+      <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50 opacity-60">
+        <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${color}`}>
+          {chart.role}
+        </span>
+        <span className="text-sm text-gray-500 truncate flex-1">{chart.label ?? chart.role}</span>
+        <span className="px-2 py-0.5 bg-gray-200 text-gray-500 text-[10px] font-bold rounded shrink-0">
+          online only
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+    >
+      <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${color}`}>
+        {chart.role}
+      </span>
+      <span className="text-sm text-gray-800 truncate flex-1">{chart.label ?? chart.role}</span>
+      {cachedUrl && (
+        <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded shrink-0">
+          cached
+        </span>
+      )}
+      {(chart.dupeCount ?? 0) > 1 && (
+        <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded shrink-0">
+          {chart.dupeCount} found
+        </span>
+      )}
+      <span className="text-gray-400 text-sm shrink-0">&rarr;</span>
+    </a>
   );
 }
 
@@ -1807,7 +1889,158 @@ function SetupTab({
             </div>
           )}
         </section>
+
+        {/* ── 7. Offline Access ──────────────────────────────────────────── */}
+        {canResolveCharts && (
+          <OfflineSection
+            charts={config.setlist.flatMap((s) => s.charts ?? [])}
+            googleToken={googleToken}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// OFFLINE SECTION (Setup tab — download charts for gig-day use)
+// ════════════════════════════════════════════════════════════════════════════
+
+function OfflineSection({
+  charts,
+  googleToken,
+}: {
+  charts: Chart[];
+  googleToken: GoogleToken | null;
+}) {
+  const [cacheStats, setCacheStats] = useState<{ count: number; bytes: number } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Load cache stats on mount and after operations
+  const refreshStats = useCallback(() => {
+    getCacheStats().then(setCacheStats).catch(() => setCacheStats(null));
+  }, []);
+
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats]);
+
+  const handleDownload = async () => {
+    if (!googleToken || charts.length === 0) return;
+    setDownloading(true);
+    setProgress(null);
+
+    // Register SW before first download
+    await registerServiceWorker();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const result = await downloadAllCharts(
+      charts,
+      googleToken.access_token,
+      (p) => setProgress({ ...p }),
+      controller.signal,
+    );
+
+    setProgress(result);
+    setDownloading(false);
+    abortRef.current = null;
+    refreshStats();
+  };
+
+  const handleCancel = () => {
+    abortRef.current?.abort();
+  };
+
+  const handleClear = async () => {
+    await clearChartCache();
+    setCacheStats({ count: 0, bytes: 0 });
+    setProgress(null);
+  };
+
+  const cacheableCount = charts.filter((c) => c.fileId && c.modifiedTime).length;
+
+  return (
+    <section className={sectionCls}>
+      <h2 className="text-lg font-bold mb-4">Offline Access</h2>
+      <p className="text-sm text-gray-600 mb-4">
+        Cache charts for offline use at the gig. Requires an active internet connection to download.
+      </p>
+
+      {downloading && progress ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+              <div
+                className="bg-black h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+              />
+            </div>
+            <span className="text-xs font-mono text-gray-500 shrink-0">
+              {progress.done}/{progress.total}
+            </span>
+          </div>
+          <button
+            onClick={handleCancel}
+            className="px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <button
+            onClick={handleDownload}
+            disabled={cacheableCount === 0}
+            className="px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors disabled:opacity-50"
+          >
+            Download Charts for Offline
+          </button>
+
+          {progress && !downloading && (
+            <div className="text-xs text-gray-600 space-y-1">
+              <p>
+                {progress.done - progress.failed.length - progress.skipped} downloaded,
+                {progress.skipped > 0 && ` ${progress.skipped} already cached,`}
+                {progress.failed.length > 0 && ` ${progress.failed.length} failed,`}
+                {progress.aborted && ' cancelled'}
+              </p>
+              {progress.failed.length > 0 && (
+                <p className="text-amber-600">
+                  {progress.failed.length} chart{progress.failed.length > 1 ? 's' : ''} could not be downloaded — these require internet
+                </p>
+              )}
+            </div>
+          )}
+
+          {cacheStats && cacheStats.count > 0 && (
+            <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="text-sm">
+                <span className="font-bold">{cacheStats.count}</span>
+                <span className="text-gray-500"> chart{cacheStats.count !== 1 ? 's' : ''} cached</span>
+                {cacheStats.bytes > 0 && (
+                  <span className="text-gray-400"> ({formatBytes(cacheStats.bytes)})</span>
+                )}
+              </div>
+              <button
+                onClick={handleClear}
+                className="px-3 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+              >
+                Clear Cache
+              </button>
+            </div>
+          )}
+
+          {cacheableCount === 0 && (
+            <p className="text-xs text-gray-400 italic">
+              No charts to cache. Resolve charts first by connecting Google Drive above.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
