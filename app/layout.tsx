@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -14,7 +14,20 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Show Bible — Stage Plot, Input List & Charts",
-  description: "Live, mobile-optimized technical rider. Stage plot, input list, monitor mixes, setlist, and charts — shareable via URL, readable on a phone at the side of the stage.",
+  description: "Live, mobile-optimized technical rider. Stage plot, input list, monitor mixes, setlist, and charts — shareable via URL, usable offline at the gig.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Show Bible",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#000000",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
