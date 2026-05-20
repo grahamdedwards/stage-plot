@@ -115,6 +115,71 @@ For big shows (Big-3 etc.) the grid may need to be free-form rather than a fixed
 
 **Drag-and-drop:** viable with `@dnd-kit/core` (lightweight, no jQuery). Each slot becomes draggable; dropping onto a grid cell updates the position. Nice-to-have, not blocking.
 
+### Charts / Lead Sheets (Planned)
+
+#### Architecture: Folder-as-Metadata in Google Drive
+
+No filename conventions needed. Folder = instrument role.
+
+```
+Drive/
+  Charts/
+    Lyrics/        ← singer lyric sheets
+    Guitar/        ← guitar chord charts
+    Bass/          ← bass charts
+    Piano/         ← piano/keys charts
+    Horns/         ← horn charts (Bb transposition assumed)
+    Drums/         ← drum charts / click maps
+    Conductor/     ← full scores / MD charts
+    [any folder]   ← free-text roles, extensible
+```
+
+#### Import Logic (per song)
+1. Normalize song title (lowercase, strip punctuation, strip "the/a/an")
+2. For each role folder: look for a file matching the normalized title (fuzzy match)
+3. **Found one** → link it, color-code by role in the setlist row
+4. **Found multiple** → take first, flag with badge ("2 found") for manual review
+5. **Found none** → no chart icon, no noise
+
+#### Format Handling (detect from URL, no conversion)
+
+| URL pattern | Type | Action |
+|---|---|---|
+| `docs.google.com/document` | Google Doc | Open in new tab |
+| `drive.google.com` PDF | Drive PDF | Open in new tab |
+| `notion.so` | Notion | Open in new tab |
+| `irealb://` | iReal Pro | Deep link → opens app |
+| `.pdf` | PDF | Open in new tab |
+| anything else | Link | Open in new tab |
+
+#### Chart Data Model
+```ts
+interface Chart {
+  role: string;      // folder name = role ("Lyrics", "Guitar", free text)
+  url: string;       // any URL
+  label?: string;    // optional e.g. "Bb transposition", "Chorus Only"
+  dupeCount?: number; // >1 = flag for review
+}
+```
+
+#### Access Model
+- Shared band Google Drive folder — everyone with access can add/update charts by dropping files in the right folder
+- App needs read-only access to the Charts folder tree (single Drive API call with root folder ID)
+- Auth: same Google OAuth already used for Sheets import
+
+#### Existing Assets (Graham)
+- Notion database of lead sheets (lyrics) — migrate to `Lyrics/` folder
+- Various musicians have their own charts — migrate to role folders
+- Master song list already in Google Sheets — add `chartsRootFolderId` config field
+
+#### Duplicate Handling
+- Take first match (alphabetical by filename)
+- Flag with orange badge "2 found" in setlist row
+- Clicking badge shows all matches for manual selection
+
+#### Future: "My Charts" View
+Musician picks their name/role from a dropdown → sees only their songs + their charts for the whole show. One tap, their part, no noise. (Bohemian Club scale feature.)
+
 ### Decision Gate
 Not building until Graham validates the use case through personal bands + Bohemian Club shows. Current tool (localStorage + shareable URL + PDF print) serves immediate needs. Template/library layer added when the iteration loop proves the value.
 
