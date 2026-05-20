@@ -25,14 +25,16 @@ User: "We're a 7-piece called Loosely Covered. Graham is lead vocals and
        opposite side behind the horns in USR. Chris, Konstantins and Luke
        are playing sax, trumpet and trombone — put them DSR as a section."
 
-Agent: Done. I've set up 7 positions:
+Agent: Done. I've set up 5 stage zones (7 players):
        • Graham — Lead Vox + Guitar, DSC (featured)
        • JT — Drums, USC
        • Terry — Bass + BGV, USL (drummer's left)
        • Matt — Keys + BGV, USR
-       • Chris — Saxophone, DSR
-       • Konstantins — Trumpet, DSR
-       • Luke — Trombone, DSR
+       • Horns — Sax, Tpt, Tbn (Chris, Konstantins, Luke), DSR
+
+       The horn section shares DSR as a single zone. I've added all
+       three players as individual channels in the input list (sax on
+       SM57, trumpet on SM57, trombone on clip mic).
 
        I also drafted a 12-channel input list based on standard mic'ing
        for these instruments. Want me to show it, or should I adjust
@@ -64,7 +66,7 @@ Agent: Setlist added (5 songs). Graham as lead on 1-4, #5 marked as
 The agent is a Claude API call with tool use. The system prompt gives it:
 
 1. **The data model** — full TypeScript interfaces for StageSlot, InputChannel, MonitorMix, SetlistSong, GeneralNote
-2. **Stage position semantics** — what USR/USC/USL/DSR/DSC/DSL mean spatially, audience perspective, stage-left vs house-left conventions
+2. **Stage position semantics** — the 3x3 zone grid (US/MS/DS x R/C/L), the zone philosophy (positions are zones, not chairs), audience perspective, stage-left vs house-left conventions
 3. **Domain knowledge** — standard instrument mic'ing, typical monitor mix patterns, power requirements by instrument, horn section conventions (Bb transposition, section grouping)
 4. **The current config** — passed as context so the agent can see what's already set up and make incremental edits
 
@@ -243,9 +245,9 @@ New users get a limited number of free agent calls before needing their own API 
 
 **How it works:**
 - Server-side Claude API key stored as a Vercel env var (`CLAUDE_TRYIT_KEY`), never exposed to the client
-- Per-IP call cap: **10 messages** (tracked server-side via KV or in-memory Map with TTL). Generous enough to set up one full show, tight enough to prevent abuse.
+- Per-IP quota: **10 user-initiated turns** (tracked server-side via Vercel KV / Upstash Redis — must be durable across cold starts and serverless instances). A "turn" is a user-authored message, not a tool-result round-trip — the apply/reject cycle that sends tool_results back to Claude does not consume quota. This keeps the UX predictable: the user sends 10 messages, period.
 - When the cap is reached, chat shows: *"You've used your free messages. Enter your own Claude API key to keep going."* with a link to the Anthropic console.
-- Try-it requests use the same `/api/agent/chat` proxy route — the server detects the absence of a client-provided key and falls back to the server-side key if the IP has remaining quota.
+- Try-it requests use the same `/api/agent/chat` proxy route — the server detects the absence of a client-provided key and falls back to the server-side key if the IP has remaining quota. The client includes a `tryit: true` flag in the request body to distinguish user-initiated turns from tool-result continuations (the server only decrements quota when `tryit: true`).
 - **No auth required.** No sign-up, no email, no cookies beyond the IP tracking. Friction-free.
 
 **Cost control:**
@@ -410,7 +412,7 @@ New runtime-only state:
 ## Security
 
 - **BYOA key in transit:** Sent to `/api/agent/chat` over HTTPS, used for one Claude API call, not stored server-side. Same security model as any BYOA integration.
-- **Try-it key:** Server-side only (`CLAUDE_TRYIT_KEY` env var). Never sent to the client, never logged. Per-IP quota prevents runaway spend.
+- **Try-it key:** Server-side only (`CLAUDE_TRYIT_KEY` env var). Never sent to the client, never logged. Per-IP quota (Vercel KV) prevents runaway spend.
 - **No key in URL:** API key never included in shareable URLs or config encoding.
 - **No key in logs:** Server route must not log request bodies.
 - **Config injection:** Agent tool outputs are validated at runtime using JSON Schema validators (not TypeScript interfaces, which are erased at build time). Each tool has a corresponding schema that checks: positions are valid `StagePosition` enum values, channel numbers are integers, required string fields are non-empty, arrays contain only well-typed objects. Invalid tool output is shown as an error in the chat, not previewed or applied. Tool definitions use `strict: true` mode (Claude's strict tool use) to further constrain output shape at the model level.
