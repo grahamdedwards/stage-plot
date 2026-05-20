@@ -35,10 +35,13 @@ export interface GeneralNote {
 }
 
 export interface Chart {
-  role: string;        // folder name = role ("Lyrics", "Guitar", free text)
-  url: string;         // any URL
-  label?: string;      // optional e.g. "Bb transposition", "Chorus Only"
-  dupeCount?: number;  // >1 = flag for review
+  role: string;           // folder name = role ("Lyrics", "Guitar", free text)
+  url: string;            // any URL
+  label?: string;         // optional e.g. "Bb transposition", "Chorus Only"
+  dupeCount?: number;     // >1 = flag for review
+  fileId?: string;        // Drive file ID (for offline cache)
+  mimeType?: string;      // original MIME type (for export detection)
+  modifiedTime?: string;  // ISO timestamp (for cache invalidation)
 }
 
 export interface SetlistSong {

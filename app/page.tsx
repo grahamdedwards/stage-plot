@@ -236,7 +236,7 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' ? (
-        <ShowTab band={band} printSections={printSections} showInfo={config.showInfo} googleToken={googleToken} chartsRootFolderId={config.chartsRootFolderId} />
+        <ShowTab band={band} printSections={printSections} showInfo={config.showInfo} />
       ) : (
         <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
       )}
@@ -370,7 +370,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
   );
 }
 
-function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderId }: { band: BandConfig; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string }; googleToken: GoogleToken | null; chartsRootFolderId?: string }) {
+function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string } }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -379,45 +379,17 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
   }
   const legend = Array.from(colorMap.entries());
 
-  // Charts state: song index -> charts array
-  const [chartsCache, setChartsCache] = useState<Record<number, Chart[]>>({});
-  const [chartsLoading, setChartsLoading] = useState<Record<number, boolean>>({});
-  const [chartsError, setChartsError] = useState<string | null>(null);
-  const [openPopover, setOpenPopover] = useState<number | null>(null);
+  // Navigator state
+  const [navigatorSongIdx, setNavigatorSongIdx] = useState<number | null>(null);
+  const [roleFilter, setRoleFilter] = useState<string>('all');
 
-  const loadCharts = useCallback(async (songIdx: number, title: string) => {
-    if (!googleToken || !chartsRootFolderId || !title.trim()) return;
-    if (chartsCache[songIdx]) {
-      setOpenPopover(openPopover === songIdx ? null : songIdx);
-      return;
-    }
-    setChartsLoading((p) => ({ ...p, [songIdx]: true }));
-    setChartsError(null);
-    try {
-      const res = await fetch(
-        `/api/drive?folderId=${encodeURIComponent(chartsRootFolderId)}&songTitle=${encodeURIComponent(title)}`,
-        { headers: { Authorization: `Bearer ${googleToken.access_token}` } },
-      );
-      if (res.status === 401) {
-        setChartsError('Google session expired — reconnect in Setup');
-        return;
-      }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
-        setChartsError(data.error ?? `Drive error (${res.status})`);
-        return;
-      }
-      const data = await res.json() as Chart[];
-      setChartsCache((p) => ({ ...p, [songIdx]: data }));
-      setOpenPopover(songIdx);
-    } catch {
-      setChartsError('Network error loading charts');
-    } finally {
-      setChartsLoading((p) => ({ ...p, [songIdx]: false }));
-    }
-  }, [googleToken, chartsRootFolderId, chartsCache, openPopover]);
+  // Check if any song has charts (pre-resolved at setup time)
+  const hasAnyCharts = band.setlist?.some((s) => s.charts && s.charts.length > 0) ?? false;
 
-  const canShowCharts = !!googleToken && !!chartsRootFolderId;
+  // Collect all unique roles across all songs for filter dropdown
+  const allRoles = Array.from(new Set(
+    (band.setlist ?? []).flatMap((s) => (s.charts ?? []).map((c) => c.role))
+  )).sort();
 
   return (
     <div className="p-4 md:p-8">
@@ -513,11 +485,6 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
             </div>
-            {chartsError && (
-              <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
-                {chartsError}
-              </div>
-            )}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 border-b">
@@ -526,17 +493,16 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
                     <th className="px-4 py-3 font-bold">Song</th>
                     <th className="px-4 py-3 font-bold">Lead</th>
                     <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
-                    {canShowCharts && <th className="px-4 py-3 font-bold w-12">Charts</th>}
+                    {hasAnyCharts && <th className="px-4 py-3 font-bold w-12">Charts</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {band.setlist.map((song, idx) => {
                     const singers = song.lead.split('+').map((n) => n.trim());
-                    const charts = chartsCache[idx];
-                    const isLoading = chartsLoading[idx];
-                    const isOpen = openPopover === idx;
+                    const songCharts = song.charts ?? [];
+                    const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
                     return (
-                      <tr key={song.position} className="hover:bg-gray-50 relative">
+                      <tr key={song.position} className="hover:bg-gray-50">
                         <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
                         <td className="px-4 py-2 font-medium">
                           {song.title}
@@ -558,27 +524,28 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
                         <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
                           {song.notes}
                         </td>
-                        {canShowCharts && (
-                          <td className="px-4 py-2 relative">
-                            <button
-                              onClick={() => loadCharts(idx, song.title)}
-                              className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-                                charts && charts.length > 0
-                                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                  : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
-                              }`}
-                              title="View charts"
-                            >
-                              {isLoading ? (
-                                <span className="animate-spin text-xs">...</span>
-                              ) : (
+                        {hasAnyCharts && (
+                          <td className="px-4 py-2">
+                            {songCharts.length > 0 ? (
+                              <button
+                                onClick={() => setNavigatorSongIdx(idx)}
+                                className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+                                  hasDupes
+                                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                }`}
+                                title={`${songCharts.length} chart${songCharts.length > 1 ? 's' : ''}`}
+                              >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
                                 </svg>
-                              )}
-                            </button>
-                            {isOpen && charts && (
-                              <ChartPopover charts={charts} onClose={() => setOpenPopover(null)} />
+                              </button>
+                            ) : (
+                              <span className="w-8 h-8 flex items-center justify-center text-gray-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                                </svg>
+                              </span>
                             )}
                           </td>
                         )}
@@ -588,6 +555,19 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
                 </tbody>
               </table>
             </div>
+
+            {/* Chart Navigator Overlay */}
+            {navigatorSongIdx !== null && band.setlist[navigatorSongIdx] && (
+              <ChartNavigator
+                setlist={band.setlist}
+                currentIdx={navigatorSongIdx}
+                roleFilter={roleFilter}
+                allRoles={allRoles}
+                onChangeIdx={setNavigatorSongIdx}
+                onChangeRole={setRoleFilter}
+                onClose={() => setNavigatorSongIdx(null)}
+              />
+            )}
           </section>
         )}
       </div>
@@ -596,7 +576,7 @@ function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderI
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CHART POPOVER
+// CHART NAVIGATOR — full-screen overlay for showtime chart browsing
 // ════════════════════════════════════════════════════════════════════════════
 
 const ROLE_COLORS: Record<string, string> = {
@@ -610,45 +590,129 @@ const ROLE_COLORS: Record<string, string> = {
   'Other': 'bg-gray-100 text-gray-600',
 };
 
-function ChartPopover({ charts, onClose }: { charts: Chart[]; onClose: () => void }) {
-  if (charts.length === 0) {
-    return (
-      <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-48">
-        <p className="text-xs text-gray-400 italic">No charts found</p>
-        <button onClick={onClose} className="mt-2 text-xs text-gray-500 hover:text-gray-700">Close</button>
-      </div>
-    );
-  }
+function ChartNavigator({
+  setlist, currentIdx, roleFilter, allRoles, onChangeIdx, onChangeRole, onClose,
+}: {
+  setlist: SetlistSong[];
+  currentIdx: number;
+  roleFilter: string;
+  allRoles: string[];
+  onChangeIdx: (idx: number) => void;
+  onChangeRole: (role: string) => void;
+  onClose: () => void;
+}) {
+  const song = setlist[currentIdx];
+  const charts = (song?.charts ?? []).filter(
+    (c) => roleFilter === 'all' || c.role === roleFilter
+  );
+
+  // Keyboard nav
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' && currentIdx > 0) onChangeIdx(currentIdx - 1);
+      if (e.key === 'ArrowRight' && currentIdx < setlist.length - 1) onChangeIdx(currentIdx + 1);
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [currentIdx, setlist.length, onChangeIdx, onClose]);
+
+  // Touch swipe
+  useEffect(() => {
+    let startX = 0;
+    const onStart = (e: TouchEvent) => { startX = e.touches[0].clientX; };
+    const onEnd = (e: TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - startX;
+      if (Math.abs(dx) > 60) {
+        if (dx < 0 && currentIdx < setlist.length - 1) onChangeIdx(currentIdx + 1);
+        if (dx > 0 && currentIdx > 0) onChangeIdx(currentIdx - 1);
+      }
+    };
+    window.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onStart);
+      window.removeEventListener('touchend', onEnd);
+    };
+  }, [currentIdx, setlist.length, onChangeIdx]);
 
   return (
-    <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-64">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-bold text-gray-500 uppercase">Charts</span>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs">X</button>
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+        <button onClick={onClose} className="text-sm font-bold text-gray-600 hover:text-black">
+          &larr; Back to Setlist
+        </button>
+        <select
+          value={roleFilter}
+          onChange={(e) => onChangeRole(e.target.value)}
+          className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+        >
+          <option value="all">All Roles</option>
+          {allRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
       </div>
-      <div className="space-y-1.5">
-        {charts.map((chart) => {
-          const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
-          return (
-            <a
-              key={`${chart.role}-${chart.url}`}
-              href={chart.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 transition-colors"
-            >
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}>
-                {chart.role}
-              </span>
-              <span className="text-xs text-gray-700 truncate flex-1">{chart.label ?? chart.role}</span>
-              {(chart.dupeCount ?? 0) > 1 && (
-                <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded">
-                  {chart.dupeCount} found
-                </span>
-              )}
-            </a>
-          );
-        })}
+
+      {/* Song info */}
+      <div className="px-4 pt-4 pb-2 text-center">
+        <p className="text-xs text-gray-400 uppercase">Song {currentIdx + 1} of {setlist.length}</p>
+        <h2 className="text-xl font-bold mt-1">{song.title}</h2>
+        {song.lead && <p className="text-sm text-gray-500 mt-0.5">{song.lead}</p>}
+      </div>
+
+      {/* Charts list */}
+      <div className="flex-1 overflow-y-auto px-4 pb-4">
+        {charts.length > 0 ? (
+          <div className="space-y-2 max-w-lg mx-auto">
+            {charts.map((chart) => {
+              const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
+              return (
+                <a
+                  key={`${chart.role}-${chart.url}`}
+                  href={chart.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${color}`}>
+                    {chart.role}
+                  </span>
+                  <span className="text-sm text-gray-800 truncate flex-1">{chart.label ?? chart.role}</span>
+                  {(chart.dupeCount ?? 0) > 1 && (
+                    <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded shrink-0">
+                      {chart.dupeCount} found
+                    </span>
+                  )}
+                  <span className="text-gray-400 text-sm shrink-0">&rarr;</span>
+                </a>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-32 text-gray-400 text-sm italic">
+            {roleFilter !== 'all'
+              ? `No ${roleFilter} chart for this song`
+              : 'No charts for this song'}
+          </div>
+        )}
+      </div>
+
+      {/* Prev / Next */}
+      <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+        <button
+          onClick={() => onChangeIdx(currentIdx - 1)}
+          disabled={currentIdx === 0}
+          className="px-4 py-2 text-sm font-bold rounded bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          &larr; Prev
+        </button>
+        <button
+          onClick={() => onChangeIdx(currentIdx + 1)}
+          disabled={currentIdx >= setlist.length - 1}
+          className="px-4 py-2 text-sm font-bold rounded bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Next &rarr;
+        </button>
       </div>
     </div>
   );
@@ -681,6 +745,54 @@ function SetupTab({
   const [driveSetupLoading, setDriveSetupLoading] = useState(false);
   const [driveError, setDriveError] = useState('');
   const [folderIdInput, setFolderIdInput] = useState(config.chartsRootFolderId ?? '');
+  const [chartsResolving, setChartsResolving] = useState(false);
+  const [chartsError, setChartsError] = useState('');
+
+  // Count songs with resolved charts
+  const chartsMatchCount = config.setlist.filter((s) => s.charts && s.charts.length > 0).length;
+  const canResolveCharts = !!googleToken && !!config.chartsRootFolderId && config.setlist.length > 0;
+
+  const resolveCharts = useCallback(async () => {
+    if (!googleToken || !config.chartsRootFolderId || config.setlist.length === 0) return;
+    setChartsResolving(true);
+    setChartsError('');
+    try {
+      const res = await fetch('/api/drive/batch', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${googleToken.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          folderId: config.chartsRootFolderId,
+          songs: config.setlist.map((s, idx) => ({ idx, title: s.title })),
+        }),
+      });
+      if (res.status === 401) {
+        setChartsError('Google session expired — reconnect Drive');
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+        setChartsError(data.error ?? `Error (${res.status})`);
+        return;
+      }
+      const data = await res.json() as { results: { idx: number; charts: Chart[] }[] };
+      updateConfig((p) => {
+        const newSetlist = [...p.setlist];
+        for (const r of data.results) {
+          if (newSetlist[r.idx]) {
+            newSetlist[r.idx] = { ...newSetlist[r.idx], charts: r.charts };
+          }
+        }
+        return { ...p, setlist: newSetlist };
+      });
+    } catch {
+      setChartsError('Network error resolving charts');
+    } finally {
+      setChartsResolving(false);
+    }
+  }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig]);
 
   // Extract folder ID from URL or bare ID
   const parseFolderId = (input: string): string | null => {
@@ -742,6 +854,7 @@ function SetupTab({
           notes: s.notes,
         })),
       }));
+      // Auto-resolve charts after setlist import (fires on next render via effect)
     } catch {
       setSheetError('Network error');
     } finally {
@@ -1137,7 +1250,26 @@ function SetupTab({
 
         {/* ── 5. Setlist ──────────────────────────────────────────────── */}
         <section className={sectionCls}>
-          <h2 className="text-lg font-bold mb-4">Setlist</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold">Setlist</h2>
+            {canResolveCharts && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">
+                  Charts: {chartsMatchCount}/{config.setlist.length} matched
+                </span>
+                <button
+                  onClick={resolveCharts}
+                  disabled={chartsResolving}
+                  className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {chartsResolving ? 'Resolving...' : 'Refresh Charts'}
+                </button>
+              </div>
+            )}
+          </div>
+          {chartsError && (
+            <p className="text-xs text-red-600 mb-3">{chartsError}</p>
+          )}
 
           {/* How it works — Sheet import */}
           <details className="mb-4 text-sm">
@@ -1182,9 +1314,17 @@ function SetupTab({
                 </tr>
               </thead>
               <tbody>
-                {config.setlist.map((song, idx) => (
+                {config.setlist.map((song, idx) => {
+                  const hasSongCharts = (song.charts?.length ?? 0) > 0;
+                  const hasSongDupes = song.charts?.some((c) => (c.dupeCount ?? 0) > 1) ?? false;
+                  return (
                   <tr key={idx} className="border-b border-gray-100">
-                    <td className="px-2 py-1">
+                    <td className="px-2 py-1 relative">
+                      {canResolveCharts && (
+                        <span className={`absolute top-1 left-0.5 w-1.5 h-1.5 rounded-full ${
+                          hasSongDupes ? 'bg-orange-400' : hasSongCharts ? 'bg-green-400' : 'bg-gray-300'
+                        }`} />
+                      )}
                       <input
                         type="number"
                         className={inputCls}
@@ -1264,7 +1404,8 @@ function SetupTab({
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
