@@ -128,7 +128,7 @@ Every tool call goes through a preview step before being applied:
 │  + Graham — Lead Vox + Guitar, DSC      │
 │  + JT — Drums, USC                      │
 │  + Terry — Bass + BGV, USL              │
-│  ~ Matt — Keys + BGV, USR → MSR        │
+│  ~ Matt — Keys + BGV, USR → USL        │
 │  - (removed) Bill — Drums, USC          │
 │                                         │
 │  [Apply]              [Reject]          │
@@ -268,8 +268,12 @@ You understand:
   Downstage: DSR (downstage right), DSC (downstage center), DSL (downstage left)
   Do NOT use MSR/MSC/MSL, PIT, FOH, or OTHER — those exist in the
   type system but are not yet renderable in the stage plot UI or
-  editable in the Setup tab. If a band needs more than 6 positions,
-  double up positions (e.g., two people at DSR) and note it.
+  editable in the Setup tab. Each position must have exactly one
+  occupant — the stage plot renderer uses position as a unique key,
+  so duplicates silently overwrite. If a band has more than 6
+  members, place the primary 6 on the grid and add overflow members
+  to the General Notes section (e.g., "Horns (3 players) share DSR
+  — Chris on sax, Konstantins on trumpet, Luke on trombone").
   Stage left/right is from the performer's perspective facing the
   audience. Audience's right = stage left = USL/DSL. Audience's
   left = stage right = USR/DSR.
