@@ -546,13 +546,13 @@ function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: 
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    {reorderMode && <th className="w-8"></th>}
+                    {reorderMode && <th className="w-8 print:hidden"></th>}
                     <th className="px-4 py-3 font-bold w-10">#</th>
                     <th className="px-4 py-3 font-bold">Song</th>
                     <th className="px-4 py-3 font-bold">Lead</th>
                     <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
                     {showChartsColumn && <th className="px-4 py-3 font-bold w-12">Charts</th>}
-                    {reorderMode && <th className="w-12"></th>}
+                    {reorderMode && <th className="w-12 print:hidden"></th>}
                   </tr>
                 </thead>
                 {reorderMode ? (
@@ -821,7 +821,7 @@ function ShowSortableRow({
 
   return (
     <tr ref={setNodeRef} style={style} className="hover:bg-gray-50">
-      <td className="px-2 py-2 cursor-grab" {...attributes} {...listeners}>
+      <td className="px-2 py-2 cursor-grab print:hidden" {...attributes} {...listeners}>
         <span className="text-gray-300 text-sm select-none">&#x2630;</span>
       </td>
       <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
@@ -861,7 +861,7 @@ function ShowSortableRow({
           </button>
         </td>
       )}
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 print:hidden">
         <div className="flex flex-col items-center">
           <button className="px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed" disabled={idx === 0} onClick={onMoveUp}>&uarr;</button>
           <button className="px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed" disabled={idx === total - 1} onClick={onMoveDown}>&darr;</button>
@@ -1176,6 +1176,7 @@ function SetupTab({
       updateConfig((prev) => ({
         ...prev,
         setlist: (data as { position: number; title: string; lead: string; notes: string }[]).map((s) => ({
+          id: crypto.randomUUID(),
           position: s.position,
           title: s.title,
           lead: s.lead,
