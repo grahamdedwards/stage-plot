@@ -1,6 +1,6 @@
 # Design: Offline Chart Cache
 
-**Status:** Draft v1.0 — awaiting review
+**Status:** Draft v1.1 — cross-check fixes applied
 **Depends on:** Batch Chart Resolution & Navigator (PR #2 design)
 **Scope:** Download chart files for offline access at the gig
 
@@ -74,28 +74,38 @@ Proxies a Drive file download. Needed because Drive API requires the access toke
 - `application/vnd.google-apps.presentation` → export as PDF
 - Everything else (PDFs, images, etc.) → direct download
 
+**Export size limits:** Google Drive's export API has a 10MB limit for Workspace files. If export fails (403 or 413):
+1. Return a structured error: `{ error: "export_too_large", fileId, fileName }`
+2. The download manager marks that chart as "not cacheable" and continues with the rest
+3. UI shows a summary after download: "85/87 cached. 2 files too large for offline — these will require internet"
+4. The navigator shows these charts with a small "online only" indicator
+
 ### Cache Key Strategy
 
+Cache API requires HTTP/HTTPS URLs as keys. We use a synthetic path under the app's own origin:
+
 ```
-stageplot-chart://{songTitle}/{role}/{fileId}
+/api/chart-cache/{fileId}/{modifiedTime}
 ```
 
-Example: `stageplot-chart://superstition/guitar/1a2b3c4d5e`
+Example: `https://stage-plot-five.vercel.app/api/chart-cache/1a2b3c4d5e/1716234567`
 
-Using fileId ensures cache invalidation when files are replaced in Drive.
+- `fileId` identifies the Drive file
+- `modifiedTime` (epoch seconds from `file.modifiedTime`) ensures cache busts when the file is edited in-place (same fileId, new revision)
+- This URL doesn't need to resolve as a real route — it's only used as a Cache API key
 
 ### Service Worker
 
-Minimal service worker that intercepts chart requests:
+Minimal service worker that intercepts chart-cache requests:
 
 ```
-app/sw.ts (or public/sw.js)
+public/sw.js
 
 on fetch:
-  if request matches stageplot-chart://*
-    → serve from Cache API
+  if request.url matches /api/chart-cache/*
+    → serve from Cache API (named cache: "stageplot-charts-v1")
     → fallback to network (if online)
-    → fallback to "offline, chart not cached" message
+    → fallback to Response("Chart not available offline", { status: 503 })
 ```
 
 Registered on first "Download Charts" action. No service worker installed until the user opts in — keeps the app simple for users who don't need offline.
@@ -144,9 +154,9 @@ The navigator overlay (from PR #2 design) gets a small enhancement:
 
 | Action | Behavior |
 |---|---|
-| Download Charts | Downloads all resolved charts. Skips already-cached files (by fileId). |
-| Refresh Charts (from PR #2) | Re-resolves links. Marks new/changed charts as "needs download". |
-| Download after Refresh | Only downloads new/changed files. |
+| Download Charts | Downloads all resolved charts. Skips files where `cache.match(cacheKey)` hits (same fileId + modifiedTime). |
+| Refresh Charts (from PR #2) | Re-resolves links. Updated `modifiedTime` values produce new cache keys — stale entries no longer match. |
+| Download after Refresh | Only downloads files with changed/new cache keys. Evicts old entries for updated files. |
 | Clear Cache | Removes all cached chart files. Frees storage. |
 | Song removed from setlist | Cached file remains (harmless). Cleared on next "Clear Cache". |
 
@@ -163,14 +173,18 @@ interface Chart {
   label?: string;
   dupeCount?: number;
   fileId?: string;        // Drive file ID (for download + cache key)
-  cached?: boolean;       // true if file is in the offline cache
+  modifiedTime?: string;  // ISO timestamp from Drive (for cache invalidation)
   mimeType?: string;      // original MIME type (for export detection)
 }
 ```
 
-New fields (`fileId`, `cached`, `mimeType`) populated during batch resolution.
+**Cache invalidation:** Most chart edits are in-place revisions under the same `fileId`. Using `modifiedTime` in the cache key means any edit in Drive produces a new key, so "Download Charts" will re-fetch the updated file. The old cached version is evicted during download (delete old key, store new).
 
-The batch endpoint (PR #2) needs to return `fileId` and `mimeType` in addition to the current fields.
+The `cached` boolean is **not stored on Chart**. Cache status is derived at runtime by checking `cache.match()` against the current key. This avoids stale flags when the browser evicts entries under storage pressure.
+
+New fields (`fileId`, `modifiedTime`, `mimeType`) populated during batch resolution.
+
+The batch endpoint (PR #2) needs to return `fileId`, `modifiedTime`, and `mimeType` in addition to the current fields.
 
 ---
 
@@ -195,8 +209,10 @@ Used to:
 |---|---|
 | Download interrupted (lost connection mid-batch) | Progress saved. "Resume Download" picks up where it left off (skips already-cached). |
 | Google Doc chart | Exported as PDF during download. Cached as PDF. |
-| Chart updated in Drive after caching | Stale cache until "Refresh Charts" + re-download. FileId changes when file is replaced. |
-| Browser clears cache (storage pressure) | `cached` flags become stale. "Download Charts" re-downloads everything. |
+| Chart edited in-place in Drive | Stale cache until "Refresh Charts" (re-fetches `modifiedTime`) + re-download. New `modifiedTime` produces a new cache key; old entry evicted during download. |
+| Chart file replaced (new fileId) | Same flow — "Refresh Charts" picks up the new fileId + modifiedTime. |
+| Browser clears cache (storage pressure) | `cache.match()` returns miss. "Download Charts" re-downloads everything. No stale boolean flags. |
+| Google Doc export too large (>10MB) | Skipped with error. Shown as "online only" in navigator. Download continues for remaining charts. |
 | Multiple shows cached | Each show has its own cache entries (keyed by song title). No conflict. |
 | Storage quota exceeded | Catch the quota error, show "Not enough storage — clear other cached shows or browser data". |
 | User never clicks Download | No service worker, no cache, no overhead. App works exactly as before. |
