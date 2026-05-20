@@ -549,11 +549,15 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                                 </svg>
                               </button>
                             ) : (
-                              <span className="w-8 h-8 flex items-center justify-center text-gray-200">
+                              <button
+                                onClick={() => setNavigatorSongIdx(idx)}
+                                className="w-8 h-8 flex items-center justify-center text-gray-200 hover:text-gray-400 hover:bg-gray-100 rounded transition-colors"
+                                title="No charts"
+                              >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
                                 </svg>
-                              </span>
+                              </button>
                             )}
                           </td>
                         )}
@@ -760,8 +764,12 @@ function SetupTab({
   const chartsMatchCount = config.setlist.filter((s) => s.charts && s.charts.length > 0).length;
   const canResolveCharts = !!googleToken && !!config.chartsRootFolderId && config.setlist.length > 0;
 
+  // Version guard: prevents out-of-order batch responses from overwriting newer data
+  const resolveVersionRef = useRef(0);
+
   const resolveCharts = useCallback(async () => {
     if (!googleToken || !config.chartsRootFolderId || config.setlist.length === 0) return;
+    const version = ++resolveVersionRef.current;
     setChartsResolving(true);
     setChartsError('');
     try {
@@ -776,6 +784,8 @@ function SetupTab({
           songs: config.setlist.map((s, idx) => ({ idx, title: s.title })),
         }),
       });
+      // Discard if a newer resolve was started while this one was in flight
+      if (version !== resolveVersionRef.current) return;
       if (res.status === 401) {
         setChartsError('Google session expired — reconnect Drive');
         return;
@@ -786,6 +796,7 @@ function SetupTab({
         return;
       }
       const data = await res.json() as { results: { idx: number; charts: Chart[] }[] };
+      if (version !== resolveVersionRef.current) return;
       updateConfig((p) => {
         const newSetlist = [...p.setlist];
         for (const r of data.results) {
@@ -796,21 +807,38 @@ function SetupTab({
         return { ...p, setlist: newSetlist };
       });
     } catch {
-      setChartsError('Network error resolving charts');
+      if (version === resolveVersionRef.current) {
+        setChartsError('Network error resolving charts');
+      }
     } finally {
-      setChartsResolving(false);
+      if (version === resolveVersionRef.current) {
+        setChartsResolving(false);
+      }
     }
   }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig]);
 
-  // Auto-resolve charts when setlist titles change (debounced 1s)
-  const titlesSignature = config.setlist.map((s) => s.title).join('\0');
-  const prevSignatureRef = useRef(titlesSignature);
+  // Auto-resolve charts when setlist titles or folder ID change (debounced 1s)
+  const resolveSignature = `${config.chartsRootFolderId ?? ''}\n${config.setlist.map((s) => s.title).join('\0')}`;
+  const prevSignatureRef = useRef(resolveSignature);
   const resolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // Clear charts when Drive is disconnected
+    if (!config.chartsRootFolderId) {
+      const hasCharts = config.setlist.some((s) => s.charts);
+      if (hasCharts) {
+        updateConfig((p) => ({
+          ...p,
+          setlist: p.setlist.map((s) => ({ ...s, charts: undefined })),
+        }));
+      }
+      prevSignatureRef.current = resolveSignature;
+      return;
+    }
+
     if (!canResolveCharts) return;
-    if (titlesSignature === prevSignatureRef.current) return;
-    prevSignatureRef.current = titlesSignature;
+    if (resolveSignature === prevSignatureRef.current) return;
+    prevSignatureRef.current = resolveSignature;
 
     if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current);
     resolveTimerRef.current = setTimeout(() => {
@@ -818,7 +846,7 @@ function SetupTab({
     }, 1000);
 
     return () => { if (resolveTimerRef.current) clearTimeout(resolveTimerRef.current); };
-  }, [titlesSignature, canResolveCharts, resolveCharts]);
+  }, [resolveSignature, canResolveCharts, resolveCharts, config.chartsRootFolderId, config.setlist, updateConfig]);
 
   // Extract folder ID from URL or bare ID
   const parseFolderId = (input: string): string | null => {
