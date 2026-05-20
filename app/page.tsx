@@ -26,7 +26,7 @@ import type {
   GeneralNote,
   Chart,
 } from '@/lib/types';
-import { ensureSetlistSongIds, moveSetlistSong } from '@/lib/setlist';
+import { ensureSetlistSongIds, moveSetlistSong, ensureInputIds, moveInput, ensureMonitorIds, moveMonitor } from '@/lib/setlist';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
 import { getBand } from '@/lib/bands';
@@ -135,28 +135,31 @@ function decodeConfig(s: string): AppConfig | null {
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════════════
-function withSongIds(config: AppConfig): AppConfig {
+function withStableIds(config: AppConfig): AppConfig {
   const setlist = ensureSetlistSongIds(config.setlist);
-  return setlist === config.setlist ? config : { ...config, setlist };
+  const inputs = ensureInputIds(config.inputs);
+  const monitors = ensureMonitorIds(config.monitors);
+  const changed = setlist !== config.setlist || inputs !== config.inputs || monitors !== config.monitors;
+  return changed ? { ...config, setlist, inputs, monitors } : config;
 }
 
 function initConfig(): AppConfig {
-  if (typeof window === 'undefined') return withSongIds(bandToConfig(fallbackBand));
+  if (typeof window === 'undefined') return withStableIds(bandToConfig(fallbackBand));
   const params = new URLSearchParams(window.location.search);
   const urlConfig = params.get('config');
   if (urlConfig) {
     const decoded = decodeConfig(urlConfig);
     if (decoded) {
-      const cfg = withSongIds(decoded);
+      const cfg = withStableIds(decoded);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
       return cfg;
     }
   }
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) {
-    try { return withSongIds(JSON.parse(stored)); } catch { /* fall through */ }
+    try { return withStableIds(JSON.parse(stored)); } catch { /* fall through */ }
   }
-  return withSongIds(bandToConfig(fallbackBand));
+  return withStableIds(bandToConfig(fallbackBand));
 }
 
 function initGoogleToken(): GoogleToken | null {
@@ -1019,6 +1022,213 @@ function SetupSortableRow({
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// SORTABLE INPUT TABLE (Setup tab)
+// ════════════════════════════════════════════════════════════════════════════
+
+function SetupInputTable({
+  inputs, onReorder, onUpdate, onDelete, onAdd,
+}: {
+  inputs: import('@/lib/types').InputChannel[];
+  onReorder: (from: number, to: number) => void;
+  onUpdate: (idx: number, field: string, value: string) => void;
+  onDelete: (idx: number) => void;
+  onAdd: () => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+  const inputIds = inputs.map((inp) => inp.id!);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = inputIds.indexOf(active.id as string);
+    const to = inputIds.indexOf(over.id as string);
+    if (from !== -1 && to !== -1) onReorder(from, to);
+  };
+
+  return (
+    <>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={inputIds} strategy={verticalListSortingStrategy}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="w-8"></th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-14">Ch</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Instrument</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Mic/DI</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Stand</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
+                  <th className="w-16"></th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {inputs.map((inp, idx) => (
+                  <SortableInputRow
+                    key={inp.id!}
+                    input={inp}
+                    idx={idx}
+                    total={inputs.length}
+                    onUpdate={onUpdate}
+                    onDelete={onDelete}
+                    onMoveUp={() => onReorder(idx, idx - 1)}
+                    onMoveDown={() => onReorder(idx, idx + 1)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SortableContext>
+      </DndContext>
+      <button className={`${btnAdd} mt-3`} onClick={onAdd}>+ Add Row</button>
+    </>
+  );
+}
+
+function SortableInputRow({
+  input: inp, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown,
+}: {
+  input: import('@/lib/types').InputChannel;
+  idx: number;
+  total: number;
+  onUpdate: (idx: number, field: string, value: string) => void;
+  onDelete: (idx: number) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: inp.id! });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+
+  return (
+    <tr ref={setNodeRef} style={style} className="border-b border-gray-100">
+      <td className="px-1 py-1 cursor-grab" {...attributes} {...listeners}>
+        <span className="text-gray-300 text-sm select-none">&#x2630;</span>
+      </td>
+      <td className="px-2 py-1">
+        <span className="text-xs font-mono text-gray-400">{inp.ch}</span>
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={inp.inst} onChange={(e) => onUpdate(idx, 'inst', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={inp.mic} onChange={(e) => onUpdate(idx, 'mic', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={inp.stand} onChange={(e) => onUpdate(idx, 'stand', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={inputCls} value={inp.notes ?? ''} onChange={(e) => onUpdate(idx, 'notes', e.target.value)} />
+      </td>
+      <td className="px-1 py-1">
+        <div className="flex flex-col items-center">
+          <button className={arrowBtn} disabled={idx === 0} onClick={onMoveUp} title="Move up">&uarr;</button>
+          <button className={arrowBtn} disabled={idx === total - 1} onClick={onMoveDown} title="Move down">&darr;</button>
+        </div>
+      </td>
+      <td className="px-2 py-1">
+        <button className="px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors" onClick={() => onDelete(idx)}>X</button>
+      </td>
+    </tr>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SORTABLE MONITOR TABLE (Setup tab)
+// ════════════════════════════════════════════════════════════════════════════
+
+function SetupMonitorTable({
+  monitors, onReorder, onUpdate, onDelete, onAdd,
+}: {
+  monitors: import('@/lib/types').MonitorMix[];
+  onReorder: (from: number, to: number) => void;
+  onUpdate: (idx: number, field: string, value: string) => void;
+  onDelete: (idx: number) => void;
+  onAdd: () => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+  const monitorIds = monitors.map((mon) => mon.id!);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = monitorIds.indexOf(active.id as string);
+    const to = monitorIds.indexOf(over.id as string);
+    if (from !== -1 && to !== -1) onReorder(from, to);
+  };
+
+  return (
+    <>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={monitorIds} strategy={verticalListSortingStrategy}>
+          <div className="space-y-3">
+            {monitors.map((mon, idx) => (
+              <SortableMonitorRow
+                key={mon.id!}
+                monitor={mon}
+                idx={idx}
+                total={monitors.length}
+                onUpdate={onUpdate}
+                onDelete={onDelete}
+                onMoveUp={() => onReorder(idx, idx - 1)}
+                onMoveDown={() => onReorder(idx, idx + 1)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+      <button className={`${btnAdd} mt-3`} onClick={onAdd}>+ Add Mix</button>
+    </>
+  );
+}
+
+function SortableMonitorRow({
+  monitor: mon, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown,
+}: {
+  monitor: import('@/lib/types').MonitorMix;
+  idx: number;
+  total: number;
+  onUpdate: (idx: number, field: string, value: string) => void;
+  onDelete: (idx: number) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: mon.id! });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center border-b border-gray-100 pb-3">
+      <div className="cursor-grab shrink-0 pt-5 sm:pt-0 self-center" {...attributes} {...listeners}>
+        <span className="text-gray-300 text-sm select-none">&#x2630;</span>
+      </div>
+      <div className="w-16 shrink-0">
+        <label className={labelCls}>Mix #</label>
+        <span className="text-sm font-mono text-gray-500">{mon.mix}</span>
+      </div>
+      <div className="flex-1">
+        <label className={labelCls}>Name</label>
+        <input className={inputCls} value={mon.name} onChange={(e) => onUpdate(idx, 'name', e.target.value)} />
+      </div>
+      <div className="flex-[2]">
+        <label className={labelCls}>Needs</label>
+        <input className={inputCls} value={mon.needs} onChange={(e) => onUpdate(idx, 'needs', e.target.value)} />
+      </div>
+      <div className="pt-5 flex items-center gap-1">
+        <div className="flex flex-col items-center">
+          <button className={arrowBtn} disabled={idx === 0} onClick={onMoveUp} title="Move up">&uarr;</button>
+          <button className={arrowBtn} disabled={idx === total - 1} onClick={onMoveDown} title="Move down">&darr;</button>
+        </div>
+        <button className={btnRemove} onClick={() => onDelete(idx)}>X</button>
+      </div>
+    </div>
+  );
+}
+
 const labelCls = 'block text-xs font-bold text-gray-500 uppercase mb-1';
 const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:p-6';
 const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors';
@@ -1394,200 +1604,45 @@ function SetupTab({
         {/* ── 3. Input List ───────────────────────────────────────────── */}
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Input List</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-14">Ch</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Instrument</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Mic/DI</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Stand</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
-                  <th className="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {config.inputs.map((inp, idx) => (
-                  <tr key={idx} className="border-b border-gray-100">
-                    <td className="px-2 py-1">
-                      <input
-                        type="number"
-                        className={inputCls}
-                        value={inp.ch}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.inputs];
-                            arr[idx] = { ...arr[idx], ch: Number(e.target.value) };
-                            return { ...p, inputs: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={inp.inst}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.inputs];
-                            arr[idx] = { ...arr[idx], inst: e.target.value };
-                            return { ...p, inputs: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={inp.mic}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.inputs];
-                            arr[idx] = { ...arr[idx], mic: e.target.value };
-                            return { ...p, inputs: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={inp.stand}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.inputs];
-                            arr[idx] = { ...arr[idx], stand: e.target.value };
-                            return { ...p, inputs: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        className={inputCls}
-                        value={inp.notes ?? ''}
-                        onChange={(e) =>
-                          updateConfig((p) => {
-                            const arr = [...p.inputs];
-                            arr[idx] = { ...arr[idx], notes: e.target.value };
-                            return { ...p, inputs: arr };
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <button
-                        className={btnRemove}
-                        onClick={() =>
-                          updateConfig((p) => ({
-                            ...p,
-                            inputs: p.inputs.filter((_, i) => i !== idx),
-                          }))
-                        }
-                      >
-                        X
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button
-            className={`${btnAdd} mt-3`}
-            onClick={() =>
-              updateConfig((p) => ({
-                ...p,
-                inputs: [
-                  ...p.inputs,
-                  { ch: p.inputs.length + 1, inst: '', mic: '', stand: '', notes: '' },
-                ],
-              }))
-            }
-          >
-            + Add Row
-          </button>
+          <SetupInputTable
+            inputs={config.inputs}
+            onReorder={(from, to) => updateConfig((p) => ({ ...p, inputs: moveInput(p.inputs, from, to) }))}
+            onUpdate={(idx, field, value) => updateConfig((p) => {
+              const arr = [...p.inputs];
+              arr[idx] = { ...arr[idx], [field]: field === 'ch' ? Number(value) : value };
+              return { ...p, inputs: arr };
+            })}
+            onDelete={(idx) => updateConfig((p) => ({
+              ...p,
+              inputs: p.inputs.filter((_, i) => i !== idx).map((inp, i) => ({ ...inp, ch: i + 1 })),
+            }))}
+            onAdd={() => updateConfig((p) => ({
+              ...p,
+              inputs: [...p.inputs, { id: crypto.randomUUID(), ch: p.inputs.length + 1, inst: '', mic: '', stand: '', notes: '' }],
+            }))}
+          />
         </section>
 
         {/* ── 4. Monitor Mixes ────────────────────────────────────────── */}
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Monitor Mixes</h2>
-          <div className="space-y-3">
-            {config.monitors.map((mon, idx) => (
-              <div key={idx} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center border-b border-gray-100 pb-3">
-                <div className="w-20 shrink-0">
-                  <label className={labelCls}>Mix #</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={mon.mix}
-                    onChange={(e) =>
-                      updateConfig((p) => {
-                        const arr = [...p.monitors];
-                        arr[idx] = { ...arr[idx], mix: Number(e.target.value) };
-                        return { ...p, monitors: arr };
-                      })
-                    }
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className={labelCls}>Name</label>
-                  <input
-                    className={inputCls}
-                    value={mon.name}
-                    onChange={(e) =>
-                      updateConfig((p) => {
-                        const arr = [...p.monitors];
-                        arr[idx] = { ...arr[idx], name: e.target.value };
-                        return { ...p, monitors: arr };
-                      })
-                    }
-                  />
-                </div>
-                <div className="flex-[2]">
-                  <label className={labelCls}>Needs</label>
-                  <input
-                    className={inputCls}
-                    value={mon.needs}
-                    onChange={(e) =>
-                      updateConfig((p) => {
-                        const arr = [...p.monitors];
-                        arr[idx] = { ...arr[idx], needs: e.target.value };
-                        return { ...p, monitors: arr };
-                      })
-                    }
-                  />
-                </div>
-                <div className="pt-5">
-                  <button
-                    className={btnRemove}
-                    onClick={() =>
-                      updateConfig((p) => ({
-                        ...p,
-                        monitors: p.monitors.filter((_, i) => i !== idx),
-                      }))
-                    }
-                  >
-                    X
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button
-            className={`${btnAdd} mt-3`}
-            onClick={() =>
-              updateConfig((p) => ({
-                ...p,
-                monitors: [
-                  ...p.monitors,
-                  { mix: p.monitors.length + 1, name: '', needs: '' },
-                ],
-              }))
-            }
-          >
-            + Add Mix
-          </button>
+          <SetupMonitorTable
+            monitors={config.monitors}
+            onReorder={(from, to) => updateConfig((p) => ({ ...p, monitors: moveMonitor(p.monitors, from, to) }))}
+            onUpdate={(idx, field, value) => updateConfig((p) => {
+              const arr = [...p.monitors];
+              arr[idx] = { ...arr[idx], [field]: field === 'mix' ? Number(value) : value };
+              return { ...p, monitors: arr };
+            })}
+            onDelete={(idx) => updateConfig((p) => ({
+              ...p,
+              monitors: p.monitors.filter((_, i) => i !== idx).map((mon, i) => ({ ...mon, mix: i + 1 })),
+            }))}
+            onAdd={() => updateConfig((p) => ({
+              ...p,
+              monitors: [...p.monitors, { id: crypto.randomUUID(), mix: p.monitors.length + 1, name: '', needs: '' }],
+            }))}
+          />
         </section>
 
         {/* ── 5. Setlist ──────────────────────────────────────────────── */}
