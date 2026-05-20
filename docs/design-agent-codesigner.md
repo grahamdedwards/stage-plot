@@ -247,7 +247,7 @@ New users get a limited number of free agent calls before needing their own API 
 - Server-side Claude API key stored as a Vercel env var (`CLAUDE_TRYIT_KEY`), never exposed to the client
 - Per-IP quota: **10 user-initiated turns** (tracked server-side via Vercel KV / Upstash Redis — must be durable across cold starts and serverless instances). A "turn" is a user-authored message, not a tool-result round-trip — the apply/reject cycle that sends tool_results back to Claude does not consume quota. This keeps the UX predictable: the user sends 10 messages, period.
 - When the cap is reached, chat shows: *"You've used your free messages. Enter your own Claude API key to keep going."* with a link to the Anthropic console.
-- Try-it requests use the same `/api/agent/chat` proxy route — the server detects the absence of a client-provided key and falls back to the server-side key if the IP has remaining quota. The client includes a `tryit: true` flag in the request body to distinguish user-initiated turns from tool-result continuations (the server only decrements quota when `tryit: true`).
+- Try-it requests use the same `/api/agent/chat` proxy route — the server detects the absence of a client-provided key and falls back to the server-side key if the IP has remaining quota. **The server determines whether a request is a user-initiated turn by inspecting the `messages` array:** if the last message in the array has `role: "user"` and contains text content (not exclusively `tool_result` blocks), it is a quota-consuming turn. This is tamper-resistant — the client cannot avoid quota decrement without also breaking the Claude API contract.
 - **No auth required.** No sign-up, no email, no cookies beyond the IP tracking. Friction-free.
 
 **Cost control:**
