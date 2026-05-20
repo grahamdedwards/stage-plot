@@ -1139,6 +1139,16 @@ function SetupTab({
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Setlist</h2>
 
+          {/* How it works — Sheet import */}
+          <details className="mb-4 text-sm">
+            <summary className="cursor-pointer text-xs font-bold text-gray-400 uppercase hover:text-gray-600">How it works</summary>
+            <ol className="mt-2 ml-4 list-decimal space-y-1 text-gray-600">
+              <li>Create a Google Sheet with columns: <strong>#</strong> (or Position), <strong>Title</strong> (or Song), <strong>Lead</strong> (or Singer), and optionally <strong>Notes</strong>.</li>
+              <li>Make the sheet publicly viewable: <em>Share &rarr; Anyone with the link &rarr; Viewer</em>.</li>
+              <li>Copy the sheet URL and paste it below.</li>
+            </ol>
+          </details>
+
           {/* Google Sheet loader */}
           <div className="flex flex-col sm:flex-row gap-2 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
             <input
@@ -1277,6 +1287,33 @@ function SetupTab({
         {/* ── 6. Google Drive Charts ────────────────────────────────────── */}
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Charts / Lead Sheets</h2>
+
+          {/* How it works — Charts */}
+          <details className="mb-4 text-sm">
+            <summary className="cursor-pointer text-xs font-bold text-gray-400 uppercase hover:text-gray-600">How it works</summary>
+            <div className="mt-2 space-y-2 text-gray-600">
+              <p>Charts are matched automatically from a Google Drive folder. The folder structure is:</p>
+              <pre className="bg-gray-50 border border-gray-200 rounded p-2 text-xs overflow-x-auto">
+{`Your Charts Folder/
+  Lyrics/        ← lyric sheets
+  Guitar/        ← chord charts
+  Bass/          ← bass charts
+  Piano / Keys/  ← keys charts
+  Horns/         ← horn parts
+  Drums/         ← drum charts
+  Conductor/     ← full scores
+  Other/         ← anything else`}
+              </pre>
+              <ol className="ml-4 list-decimal space-y-1">
+                <li>Click <strong>Connect Google Drive</strong> and authorize read access.</li>
+                <li>Create (or pick) a folder in Drive for your charts. Copy the folder URL.</li>
+                <li>Paste it below and click <strong>Setup Chart Folders</strong> &mdash; the app creates the role subfolders for you.</li>
+                <li>Drop chart files into the matching role folder. Name files after the song (e.g., &ldquo;Superstition.pdf&rdquo; in <code className="text-xs bg-gray-100 px-1 rounded">Guitar/</code>).</li>
+                <li>On the <strong>Show</strong> tab, each song in the setlist gets a music-note icon. Tap it to see matched charts.</li>
+              </ol>
+            </div>
+          </details>
+
           {!googleToken ? (
             <div className="space-y-3">
               <p className="text-sm text-gray-600">
