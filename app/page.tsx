@@ -542,22 +542,22 @@ function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: 
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
             </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    {reorderMode && <th className="w-8 print:hidden"></th>}
-                    <th className="px-4 py-3 font-bold w-10">#</th>
-                    <th className="px-4 py-3 font-bold">Song</th>
-                    <th className="px-4 py-3 font-bold">Lead</th>
-                    <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
-                    {showChartsColumn && <th className="px-4 py-3 font-bold w-12">Charts</th>}
-                    {reorderMode && <th className="w-12 print:hidden"></th>}
-                  </tr>
-                </thead>
-                {reorderMode ? (
-                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                    <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
+            {reorderMode ? (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="w-8 print:hidden"></th>
+                          <th className="px-4 py-3 font-bold w-10">#</th>
+                          <th className="px-4 py-3 font-bold">Song</th>
+                          <th className="px-4 py-3 font-bold">Lead</th>
+                          <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
+                          {showChartsColumn && <th className="px-4 py-3 font-bold w-12">Charts</th>}
+                          <th className="w-12 print:hidden"></th>
+                        </tr>
+                      </thead>
                       <tbody className="divide-y">
                         {band.setlist.map((song, idx) => (
                           <ShowSortableRow
@@ -573,9 +573,22 @@ function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: 
                           />
                         ))}
                       </tbody>
-                    </SortableContext>
-                  </DndContext>
-                ) : (
+                    </table>
+                  </div>
+                </SortableContext>
+              </DndContext>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 font-bold w-10">#</th>
+                    <th className="px-4 py-3 font-bold">Song</th>
+                    <th className="px-4 py-3 font-bold">Lead</th>
+                    <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
+                    {showChartsColumn && <th className="px-4 py-3 font-bold w-12">Charts</th>}
+                  </tr>
+                </thead>
                   <tbody className="divide-y">
                     {band.setlist.map((song, idx) => {
                       const singers = song.lead.split('+').map((n) => n.trim());
@@ -627,9 +640,9 @@ function ShowTab({ band, setlist, printSections, showInfo, onReorder }: { band: 
                       );
                     })}
                   </tbody>
-                )}
               </table>
-            </div>
+              </div>
+            )}
 
             {/* Chart Navigator Overlay */}
             {navigatorSongIdx !== null && band.setlist[navigatorSongIdx] && (
@@ -902,22 +915,22 @@ function SetupSetlistTable({
 
   return (
     <>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="w-8"></th>
-              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-10">#</th>
-              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Title</th>
-              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Lead</th>
-              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
-              <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
-              <th className="w-16"></th>
-              <th className="w-10"></th>
-            </tr>
-          </thead>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="w-8"></th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-10">#</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Title</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Lead</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
+                  <th className="w-16"></th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
               <tbody>
                 {setlist.map((song, idx) => (
                   <SetupSortableRow
@@ -933,10 +946,10 @@ function SetupSetlistTable({
                   />
                 ))}
               </tbody>
-            </SortableContext>
-          </DndContext>
-        </table>
-      </div>
+            </table>
+          </div>
+        </SortableContext>
+      </DndContext>
       <button
         className="px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors mt-3"
         onClick={onAdd}
