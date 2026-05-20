@@ -9,6 +9,7 @@ import type {
   MonitorMix,
   SetlistSong,
   GeneralNote,
+  Chart,
 } from '@/lib/types';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
@@ -24,6 +25,36 @@ interface AppConfig {
   monitors: MonitorMix[];
   notes: GeneralNote[];
   setlist: SetlistSong[];
+  chartsRootFolderId?: string;
+}
+
+// ─── Google tokens stored separately in localStorage ────────────────────────
+const GOOGLE_TOKEN_KEY = 'stageplot-google-token';
+
+interface GoogleToken {
+  access_token: string;
+  refresh_token?: string;
+  expires_at: number; // epoch ms
+}
+
+function getGoogleToken(): GoogleToken | null {
+  try {
+    const stored = localStorage.getItem(GOOGLE_TOKEN_KEY);
+    if (!stored) return null;
+    const token = JSON.parse(stored) as GoogleToken;
+    if (token.expires_at < Date.now()) return null;
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+function saveGoogleToken(token: GoogleToken) {
+  localStorage.setItem(GOOGLE_TOKEN_KEY, JSON.stringify(token));
+}
+
+function clearGoogleToken() {
+  localStorage.removeItem(GOOGLE_TOKEN_KEY);
 }
 
 function bandToConfig(b: BandConfig): AppConfig {
@@ -88,12 +119,50 @@ function decodeConfig(s: string): AppConfig | null {
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════════════
+function initConfig(): AppConfig {
+  if (typeof window === 'undefined') return bandToConfig(fallbackBand);
+  const params = new URLSearchParams(window.location.search);
+  const urlConfig = params.get('config');
+  if (urlConfig) {
+    const decoded = decodeConfig(urlConfig);
+    if (decoded) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(decoded));
+      return decoded;
+    }
+  }
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    try { return JSON.parse(stored); } catch { /* fall through */ }
+  }
+  return bandToConfig(fallbackBand);
+}
+
+function initGoogleToken(): GoogleToken | null {
+  if (typeof window === 'undefined') return null;
+  if (window.location.hash.startsWith('#google_auth=')) {
+    const fragment = new URLSearchParams(window.location.hash.slice('#google_auth='.length));
+    const accessToken = fragment.get('access_token');
+    const expiresIn = fragment.get('expires_in');
+    if (accessToken && expiresIn) {
+      const token: GoogleToken = {
+        access_token: accessToken,
+        refresh_token: fragment.get('refresh_token') ?? undefined,
+        expires_at: Date.now() + Number(expiresIn) * 1000,
+      };
+      saveGoogleToken(token);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      return token;
+    }
+  }
+  return getGoogleToken();
+}
+
 export default function Page() {
   const [tab, setTab] = useState<'show' | 'setup'>('show');
-  const [config, setConfig] = useState<AppConfig | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [config, setConfig] = useState<AppConfig>(initConfig);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [googleToken, setGoogleToken] = useState<GoogleToken | null>(initGoogleToken);
   const [printSections, setPrintSections] = useState({
     stagePlot: true,
     inputList: true,
@@ -102,41 +171,13 @@ export default function Page() {
     setlist: true,
   });
 
-  // ── Load config: URL param > localStorage > fallback ──────────────────
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlConfig = params.get('config');
-    if (urlConfig) {
-      const decoded = decodeConfig(urlConfig);
-      if (decoded) {
-        setConfig(decoded);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(decoded));
-        setLoaded(true);
-        return;
-      }
-    }
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setConfig(JSON.parse(stored));
-      } catch {
-        setConfig(bandToConfig(fallbackBand));
-      }
-    } else {
-      setConfig(bandToConfig(fallbackBand));
-    }
-    setLoaded(true);
-  }, []);
-
   // ── Persist to localStorage on change ─────────────────────────────────
   useEffect(() => {
-    if (loaded && config) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    }
-  }, [config, loaded]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  }, [config]);
 
   const updateConfig = useCallback((fn: (prev: AppConfig) => AppConfig) => {
-    setConfig((prev) => (prev ? fn(prev) : prev));
+    setConfig((prev) => fn(prev));
   }, []);
 
   const handleCopyLink = useCallback(() => {
@@ -148,14 +189,6 @@ export default function Page() {
       setTimeout(() => setCopyFeedback(false), 2000);
     });
   }, [config]);
-
-  if (!loaded || !config) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-400">Loading...</p>
-      </div>
-    );
-  }
 
   const band = configToBand(config);
 
@@ -203,9 +236,9 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' ? (
-        <ShowTab band={band} printSections={printSections} showInfo={config.showInfo} />
+        <ShowTab band={band} printSections={printSections} showInfo={config.showInfo} googleToken={googleToken} chartsRootFolderId={config.chartsRootFolderId} />
       ) : (
-        <SetupTab config={config} updateConfig={updateConfig} />
+        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
       )}
 
       {/* ── Print Modal ─────────────────────────────────────────────── */}
@@ -337,7 +370,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
   );
 }
 
-function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string } }) {
+function ShowTab({ band, printSections, showInfo, googleToken, chartsRootFolderId }: { band: BandConfig; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string }; googleToken: GoogleToken | null; chartsRootFolderId?: string }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -345,6 +378,46 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
     });
   }
   const legend = Array.from(colorMap.entries());
+
+  // Charts state: song index -> charts array
+  const [chartsCache, setChartsCache] = useState<Record<number, Chart[]>>({});
+  const [chartsLoading, setChartsLoading] = useState<Record<number, boolean>>({});
+  const [chartsError, setChartsError] = useState<string | null>(null);
+  const [openPopover, setOpenPopover] = useState<number | null>(null);
+
+  const loadCharts = useCallback(async (songIdx: number, title: string) => {
+    if (!googleToken || !chartsRootFolderId || !title.trim()) return;
+    if (chartsCache[songIdx]) {
+      setOpenPopover(openPopover === songIdx ? null : songIdx);
+      return;
+    }
+    setChartsLoading((p) => ({ ...p, [songIdx]: true }));
+    setChartsError(null);
+    try {
+      const res = await fetch(
+        `/api/drive?folderId=${encodeURIComponent(chartsRootFolderId)}&songTitle=${encodeURIComponent(title)}`,
+        { headers: { Authorization: `Bearer ${googleToken.access_token}` } },
+      );
+      if (res.status === 401) {
+        setChartsError('Google session expired — reconnect in Setup');
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+        setChartsError(data.error ?? `Drive error (${res.status})`);
+        return;
+      }
+      const data = await res.json() as Chart[];
+      setChartsCache((p) => ({ ...p, [songIdx]: data }));
+      setOpenPopover(songIdx);
+    } catch {
+      setChartsError('Network error loading charts');
+    } finally {
+      setChartsLoading((p) => ({ ...p, [songIdx]: false }));
+    }
+  }, [googleToken, chartsRootFolderId, chartsCache, openPopover]);
+
+  const canShowCharts = !!googleToken && !!chartsRootFolderId;
 
   return (
     <div className="p-4 md:p-8">
@@ -440,6 +513,11 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
             </div>
+            {chartsError && (
+              <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                {chartsError}
+              </div>
+            )}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 border-b">
@@ -448,13 +526,17 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                     <th className="px-4 py-3 font-bold">Song</th>
                     <th className="px-4 py-3 font-bold">Lead</th>
                     <th className="px-4 py-3 font-bold hidden sm:table-cell">Notes</th>
+                    {canShowCharts && <th className="px-4 py-3 font-bold w-12">Charts</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {band.setlist.map((song) => {
+                  {band.setlist.map((song, idx) => {
                     const singers = song.lead.split('+').map((n) => n.trim());
+                    const charts = chartsCache[idx];
+                    const isLoading = chartsLoading[idx];
+                    const isOpen = openPopover === idx;
                     return (
-                      <tr key={song.position} className="hover:bg-gray-50">
+                      <tr key={song.position} className="hover:bg-gray-50 relative">
                         <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
                         <td className="px-4 py-2 font-medium">
                           {song.title}
@@ -476,6 +558,30 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
                         <td className="px-4 py-2 text-gray-500 italic text-xs hidden sm:table-cell">
                           {song.notes}
                         </td>
+                        {canShowCharts && (
+                          <td className="px-4 py-2 relative">
+                            <button
+                              onClick={() => loadCharts(idx, song.title)}
+                              className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+                                charts && charts.length > 0
+                                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                  : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+                              }`}
+                              title="View charts"
+                            >
+                              {isLoading ? (
+                                <span className="animate-spin text-xs">...</span>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                                </svg>
+                              )}
+                            </button>
+                            {isOpen && charts && (
+                              <ChartPopover charts={charts} onClose={() => setOpenPopover(null)} />
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -484,6 +590,65 @@ function ShowTab({ band, printSections, showInfo }: { band: BandConfig; printSec
             </div>
           </section>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CHART POPOVER
+// ════════════════════════════════════════════════════════════════════════════
+
+const ROLE_COLORS: Record<string, string> = {
+  'Lyrics': 'bg-purple-100 text-purple-800',
+  'Guitar': 'bg-red-100 text-red-800',
+  'Bass': 'bg-green-100 text-green-800',
+  'Piano / Keys': 'bg-blue-100 text-blue-800',
+  'Horns': 'bg-yellow-100 text-yellow-800',
+  'Drums': 'bg-orange-100 text-orange-800',
+  'Conductor': 'bg-gray-100 text-gray-800',
+  'Other': 'bg-gray-100 text-gray-600',
+};
+
+function ChartPopover({ charts, onClose }: { charts: Chart[]; onClose: () => void }) {
+  if (charts.length === 0) {
+    return (
+      <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-48">
+        <p className="text-xs text-gray-400 italic">No charts found</p>
+        <button onClick={onClose} className="mt-2 text-xs text-gray-500 hover:text-gray-700">Close</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-64">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold text-gray-500 uppercase">Charts</span>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs">X</button>
+      </div>
+      <div className="space-y-1.5">
+        {charts.map((chart) => {
+          const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
+          return (
+            <a
+              key={`${chart.role}-${chart.url}`}
+              href={chart.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 transition-colors"
+            >
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}>
+                {chart.role}
+              </span>
+              <span className="text-xs text-gray-700 truncate flex-1">{chart.label ?? chart.role}</span>
+              {(chart.dupeCount ?? 0) > 1 && (
+                <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded">
+                  {chart.dupeCount} found
+                </span>
+              )}
+            </a>
+          );
+        })}
       </div>
     </div>
   );
@@ -502,13 +667,60 @@ const btnRemove = 'px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-re
 function SetupTab({
   config,
   updateConfig,
+  googleToken,
+  onDisconnectGoogle,
 }: {
   config: AppConfig;
   updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
+  googleToken: GoogleToken | null;
+  onDisconnectGoogle: () => void;
 }) {
   const [sheetUrl, setSheetUrl] = useState('');
   const [sheetLoading, setSheetLoading] = useState(false);
   const [sheetError, setSheetError] = useState('');
+  const [driveSetupLoading, setDriveSetupLoading] = useState(false);
+  const [driveError, setDriveError] = useState('');
+  const [folderIdInput, setFolderIdInput] = useState(config.chartsRootFolderId ?? '');
+
+  // Extract folder ID from URL or bare ID
+  const parseFolderId = (input: string): string | null => {
+    const trimmed = input.trim();
+    // Match /folders/FOLDER_ID or /d/FOLDER_ID patterns in Drive URLs
+    const urlMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (urlMatch) return urlMatch[1];
+    const dMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (dMatch) return dMatch[1];
+    // Bare ID (no slashes, reasonable length)
+    if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmed)) return trimmed;
+    return null;
+  };
+
+  const handleSetupDrive = async () => {
+    if (!googleToken || !folderIdInput.trim()) return;
+    const folderId = parseFolderId(folderIdInput);
+    if (!folderId) {
+      setDriveError('Invalid folder URL or ID. Paste a Google Drive folder link or its ID.');
+      return;
+    }
+    setDriveSetupLoading(true);
+    setDriveError('');
+    try {
+      const res = await fetch(
+        `/api/drive/setup?parentFolderId=${encodeURIComponent(folderId)}`,
+        { headers: { Authorization: `Bearer ${googleToken.access_token}` } },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setDriveError(data.error || 'Failed to setup Drive folders');
+        return;
+      }
+      updateConfig((p) => ({ ...p, chartsRootFolderId: folderId }));
+    } catch {
+      setDriveError('Network error');
+    } finally {
+      setDriveSetupLoading(false);
+    }
+  };
 
   const handleLoadSheet = async () => {
     if (!sheetUrl.trim()) return;
@@ -927,6 +1139,16 @@ function SetupTab({
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Setlist</h2>
 
+          {/* How it works — Sheet import */}
+          <details className="mb-4 text-sm">
+            <summary className="cursor-pointer text-xs font-bold text-gray-400 uppercase hover:text-gray-600">How it works</summary>
+            <ol className="mt-2 ml-4 list-decimal space-y-1 text-gray-600">
+              <li>Create a Google Sheet with columns: <strong>#</strong> (or Position), <strong>Title</strong> (or Song), <strong>Lead</strong> (or Singer), and optionally <strong>Notes</strong>.</li>
+              <li>Make the sheet publicly viewable: <em>Share &rarr; Anyone with the link &rarr; Viewer</em>.</li>
+              <li>Copy the sheet URL and paste it below.</li>
+            </ol>
+          </details>
+
           {/* Google Sheet loader */}
           <div className="flex flex-col sm:flex-row gap-2 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
             <input
@@ -1060,6 +1282,96 @@ function SetupTab({
           >
             + Add Song
           </button>
+        </section>
+
+        {/* ── 6. Google Drive Charts ────────────────────────────────────── */}
+        <section className={sectionCls}>
+          <h2 className="text-lg font-bold mb-4">Charts / Lead Sheets</h2>
+
+          {/* How it works — Charts */}
+          <details className="mb-4 text-sm">
+            <summary className="cursor-pointer text-xs font-bold text-gray-400 uppercase hover:text-gray-600">How it works</summary>
+            <div className="mt-2 space-y-2 text-gray-600">
+              <p>Charts are matched automatically from a Google Drive folder. The folder structure is:</p>
+              <pre className="bg-gray-50 border border-gray-200 rounded p-2 text-xs overflow-x-auto">
+{`Your Charts Folder/
+  Lyrics/        ← lyric sheets
+  Guitar/        ← chord charts
+  Bass/          ← bass charts
+  Piano / Keys/  ← keys charts
+  Horns/         ← horn parts
+  Drums/         ← drum charts
+  Conductor/     ← full scores
+  Other/         ← anything else`}
+              </pre>
+              <ol className="ml-4 list-decimal space-y-1">
+                <li>Click <strong>Connect Google Drive</strong> and authorize read access.</li>
+                <li>Create (or pick) a folder in Drive for your charts. Copy the folder URL.</li>
+                <li>Paste it below and click <strong>Setup Chart Folders</strong> &mdash; the app creates the role subfolders for you.</li>
+                <li>Drop chart files into the matching role folder. Name files after the song (e.g., &ldquo;Superstition.pdf&rdquo; in <code className="text-xs bg-gray-100 px-1 rounded">Guitar/</code>).</li>
+                <li>On the <strong>Show</strong> tab, each song in the setlist gets a music-note icon. Tap it to see matched charts.</li>
+              </ol>
+            </div>
+          </details>
+
+          {!googleToken ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Connect Google Drive to auto-match charts to songs by role (Lyrics, Guitar, Bass, etc.).
+              </p>
+              <a
+                href="/api/auth/google"
+                className="inline-block px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Connect Google Drive
+              </a>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">Connected</span>
+                <button
+                  onClick={() => {
+                    onDisconnectGoogle();
+                    updateConfig((p) => ({ ...p, chartsRootFolderId: undefined }));
+                  }}
+                  className="text-xs text-red-600 hover:text-red-800"
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {config.chartsRootFolderId ? (
+                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-xs text-gray-500 mb-1">Charts folder ID</p>
+                  <p className="text-sm font-mono text-gray-700 break-all">{config.chartsRootFolderId}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600">
+                    Paste the Google Drive folder URL (or ID) where your Charts folder should live.
+                    The app will create role subfolders automatically.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      className={`${inputCls} flex-1`}
+                      placeholder="Google Drive folder URL or ID..."
+                      value={folderIdInput}
+                      onChange={(e) => setFolderIdInput(e.target.value)}
+                    />
+                    <button
+                      className="px-4 py-1.5 text-xs font-bold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                      onClick={handleSetupDrive}
+                      disabled={driveSetupLoading || !folderIdInput.trim()}
+                    >
+                      {driveSetupLoading ? 'Setting up...' : 'Setup Chart Folders'}
+                    </button>
+                  </div>
+                  {driveError && <p className="text-xs text-red-600">{driveError}</p>}
+                </div>
+              )}
+            </div>
+          )}
         </section>
       </div>
     </div>

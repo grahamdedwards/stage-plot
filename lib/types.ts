@@ -34,12 +34,20 @@ export interface GeneralNote {
   text: string;
 }
 
+export interface Chart {
+  role: string;        // folder name = role ("Lyrics", "Guitar", free text)
+  url: string;         // any URL
+  label?: string;      // optional e.g. "Bb transposition", "Chorus Only"
+  dupeCount?: number;  // >1 = flag for review
+}
+
 export interface SetlistSong {
   position: number;
   title: string;
   lead: string;           // singer name(s) — e.g. "Rachel" or "Graham + Rachel"
   notes?: string;         // e.g. "key change", "guest", "spoken word"
   sceneNote?: string;     // engineer cue — e.g. "save scene after"
+  charts?: Chart[];       // matched charts from Google Drive
 }
 
 export interface BandConfig {
