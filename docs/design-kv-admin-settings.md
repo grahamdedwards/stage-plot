@@ -1,6 +1,6 @@
 # Design: Vercel KV Foundation + Admin Settings
 
-**Status:** Draft v1.0
+**Status:** Draft v1.1 — Codex cross-check fixes applied
 **Depends on:** None (foundational infrastructure)
 **Scope:** Add Vercel KV as the persistence layer; build an admin settings panel for operator self-service configuration; migrate try-it quota from in-memory to KV
 
@@ -50,7 +50,7 @@ This design targets the **paid tier** infrastructure. Free tier is unaffected �
 | `admin:google_client_id` | string | Google OAuth client ID |
 | `admin:google_client_secret` | string | Google OAuth client secret |
 | `admin:claude_tryit_key` | string | Claude API key for try-it mode |
-| `quota:{ip}` | `{ count: number }` | Try-it usage counter (TTL-based expiry) |
+| `quota:{ip}` | integer (via `INCR`) | Try-it usage counter (TTL-based expiry, 30 days) |
 
 Slug URL keys (`show:{slug}`) are out of scope for this PR but will use the same KV instance.
 
@@ -89,7 +89,7 @@ Operator visits /admin
   │   │              [ Save Settings ]          │
   │   └─────────────────────────────────────────┘
   │
-  └─ On save: POST /api/admin/settings with updated values
+  └─ On save: PUT /api/admin/settings with updated values
       Server writes to KV, returns confirmation
 ```
 
@@ -110,9 +110,12 @@ All API routes that currently read `process.env` will be updated to read from KV
 ```ts
 import { kv } from '@vercel/kv';
 
+const DISABLED_SENTINEL = '__DISABLED__';
+
 export async function getAdminConfig(key: string): Promise<string | null> {
   try {
     const kvValue = await kv.get<string>(`admin:${key}`);
+    if (kvValue === DISABLED_SENTINEL) return null; // explicitly unconfigured
     if (kvValue) return kvValue;
   } catch {
     // KV not configured or unavailable — fall through to env var
@@ -138,25 +141,35 @@ Replace the in-memory `Map` with KV-backed quota tracking.
 const tryitQuota = new Map<string, { count: number; resetAt: number }>();
 ```
 
-**After** (KV, persists across instances):
+**After** (KV, persists across instances, with in-memory fallback):
 ```ts
+// Fallback for when KV is unavailable (e.g. free tier, KV outage)
+const fallbackQuota = new Map<string, { count: number; resetAt: number }>();
+
 async function consumeTryitQuota(ip: string): Promise<{ allowed: boolean; remaining: number }> {
-  const key = `quota:${ip}`;
-  const count = await kv.incr(key);
+  try {
+    const key = `quota:${ip}`;
+    const count = await kv.incr(key);
 
-  // Set TTL on first use (30 days)
-  if (count === 1) {
-    await kv.expire(key, 30 * 24 * 60 * 60);
-  }
+    // Set TTL on first use (30 days)
+    if (count === 1) {
+      await kv.expire(key, 30 * 24 * 60 * 60);
+    }
 
-  if (count > TRYIT_QUOTA) {
-    return { allowed: false, remaining: 0 };
+    if (count > TRYIT_QUOTA) {
+      return { allowed: false, remaining: 0 };
+    }
+    return { allowed: true, remaining: Math.max(0, TRYIT_QUOTA - count) };
+  } catch {
+    // KV unavailable — fall back to in-memory (same as current behavior)
+    return consumeFallbackQuota(ip);
   }
-  return { allowed: true, remaining: Math.max(0, TRYIT_QUOTA - count) };
 }
 ```
 
 **Why `incr` + `expire`:** Redis `INCR` is atomic — no race conditions between concurrent requests. `EXPIRE` sets a TTL so quota entries auto-clean. No manual `resetAt` tracking needed; Redis handles it.
+
+**Fallback:** When KV is unavailable, quota falls back to the current in-memory `Map` implementation. This is lossy (resets on cold start) but functional — the Anthropic usage limits on the server key remain as a safety net. This matches today's behavior exactly.
 
 ---
 
@@ -172,7 +185,7 @@ async function consumeTryitQuota(ip: string): Promise<{ allowed: boolean; remain
 
 - **Auth:** `Authorization: Bearer {ADMIN_SECRET}`
 - **Body:** `{ google_client_id?: string, google_client_secret?: string, claude_tryit_key?: string }`
-- **Behavior:** Writes non-empty values to KV. Empty string = delete key (unconfigure).
+- **Behavior:** Writes non-empty values to KV. Empty string = store explicit `"__DISABLED__"` sentinel (not delete), which `getAdminConfig` treats as "unconfigured" and returns `null`. This prevents env var fallback from re-enabling a feature the admin intentionally disabled.
 - **Response:** Updated config (secrets masked)
 - **Rate limit:** 5 requests/min/IP
 
@@ -219,8 +232,11 @@ For development: `ADMIN_SECRET` goes in `.env.local`. KV works locally via the V
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **Should `/admin` be discoverable?** Currently there's no link to it from the main app. Operators know it exists from setup docs. Security-through-obscurity isn't security, but it does reduce surface area. The auth gate is the real protection. Recommendation: no link, document in README/setup guide.
+1. **Should `/admin` be discoverable?** No link from main app. Auth gate + rate-limit are the real protection. Document in README/setup guide only.
 
-2. **KV unavailable gracefully?** If the KV store isn't provisioned (e.g. free tier user who didn't set it up), all `getAdminConfig` calls fall through to `process.env`. The app works exactly as it does today. Zero regression risk.
+2. **KV unavailable behavior?** Defined per-route:
+   - **Admin writes** (`PUT /api/admin/settings`): fail closed — return 503 if KV is unreachable. Admin can't save settings without persistence.
+   - **Config reads** (`getAdminConfig`): fall through to `process.env`. Existing env-var deployments work unchanged.
+   - **Try-it quota**: fall back to in-memory Map (current behavior). Lossy but functional; Anthropic usage limits remain as safety net.
