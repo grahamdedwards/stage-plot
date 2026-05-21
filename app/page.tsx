@@ -1747,8 +1747,7 @@ function AgentChat({
       )}
 
       {/* Chat messages */}
-      <div className="border border-gray-200 rounded-lg p-3 max-h-[calc(100vh-420px)] overflow-y-auto space-y-3 text-sm bg-white">
-        {messages.length === 0 && !streaming && null}
+      {(messages.length > 0 || streaming) && <div className="border border-gray-200 rounded-lg p-3 max-h-[calc(100vh-420px)] overflow-y-auto space-y-3 text-sm bg-white">
         {messages.map((msg, msgIdx) => (
           <div key={msgIdx} className={msg.role === 'user' ? 'text-right' : ''}>
             {msg.role === 'user' ? (
@@ -1798,7 +1797,7 @@ function AgentChat({
           <div className="text-gray-400 text-xs animate-pulse">Thinking...</div>
         )}
         <div ref={chatEndRef} />
-      </div>
+      </div>}
 
       {error && (
         <p className="text-sm text-red-600">{error}</p>
