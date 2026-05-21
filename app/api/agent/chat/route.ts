@@ -39,9 +39,14 @@ async function consumeTryitQuota(ip: string): Promise<{ allowed: boolean; remain
     const key = `quota:${ip}`;
     const count = await kv.incr(key);
 
-    // Set TTL on first use
-    if (count === 1) {
+    // Always set TTL — idempotent, ensures TTL is present even if a
+    // prior EXPIRE failed. Isolated so EXPIRE failure doesn't discard
+    // the successful INCR result.
+    try {
       await kv.expire(key, QUOTA_TTL_SECONDS);
+    } catch {
+      // TTL not set — key persists without expiry. Acceptable: worst
+      // case is this IP's quota never resets, which is conservative.
     }
 
     if (count > TRYIT_QUOTA) {

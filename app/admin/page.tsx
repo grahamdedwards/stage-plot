@@ -57,21 +57,11 @@ export default function AdminPage() {
     setSaveSuccess('');
     setSaving(true);
 
+    // Only send non-empty fields — blank means "no change"
     const body: Record<string, string> = {};
     if (googleClientId) body.google_client_id = googleClientId;
     if (googleClientSecret) body.google_client_secret = googleClientSecret;
     if (claudeTryitKey) body.claude_tryit_key = claudeTryitKey;
-
-    // Allow explicit clearing (empty string = disable)
-    if (googleClientId === '' && document.getElementById('gci')?.getAttribute('data-touched') === 'true') {
-      body.google_client_id = '';
-    }
-    if (googleClientSecret === '' && document.getElementById('gcs')?.getAttribute('data-touched') === 'true') {
-      body.google_client_secret = '';
-    }
-    if (claudeTryitKey === '' && document.getElementById('ctk')?.getAttribute('data-touched') === 'true') {
-      body.claude_tryit_key = '';
-    }
 
     if (Object.keys(body).length === 0) {
       setError('No changes to save.');
@@ -102,6 +92,32 @@ export default function AdminPage() {
     setGoogleClientSecret('');
     setClaudeTryitKey('');
     setSaveSuccess(`Updated: ${data.updated.join(', ')}`);
+    setTimeout(() => setSaveSuccess(''), 3000);
+  }
+
+  async function handleClear(key: string) {
+    if (!confirm(`Disable ${key.replace(/_/g, ' ')}? This will prevent the feature from working.`)) return;
+    setError('');
+    setSaveSuccess('');
+
+    const res = await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ [key]: '' }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.error || 'Clear failed.');
+      return;
+    }
+
+    const data = await res.json();
+    setConfig(data.config);
+    setSaveSuccess(`Cleared: ${key}`);
     setTimeout(() => setSaveSuccess(''), 3000);
   }
 
@@ -167,39 +183,30 @@ export default function AdminPage() {
           {saveSuccess && <p className="text-sm text-green-600 mb-4">{saveSuccess}</p>}
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Google Client ID</label>
-              <input
-                id="gci"
-                type="text"
-                value={googleClientId}
-                onChange={(e) => { setGoogleClientId(e.target.value); e.target.setAttribute('data-touched', 'true'); }}
-                placeholder={config?.google_client_id?.configured ? 'Currently set — leave blank to keep' : 'Not configured'}
-                className="w-full px-3 py-2 border rounded-lg text-sm font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Google Client Secret</label>
-              <input
-                id="gcs"
-                type="password"
-                value={googleClientSecret}
-                onChange={(e) => { setGoogleClientSecret(e.target.value); e.target.setAttribute('data-touched', 'true'); }}
-                placeholder={config?.google_client_secret?.configured ? 'Currently set — leave blank to keep' : 'Not configured'}
-                className="w-full px-3 py-2 border rounded-lg text-sm font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Claude API Key (Try-It Mode)</label>
-              <input
-                id="ctk"
-                type="password"
-                value={claudeTryitKey}
-                onChange={(e) => { setClaudeTryitKey(e.target.value); e.target.setAttribute('data-touched', 'true'); }}
-                placeholder={config?.claude_tryit_key?.configured ? 'Currently set — leave blank to keep' : 'Not configured'}
-                className="w-full px-3 py-2 border rounded-lg text-sm font-mono"
-              />
-            </div>
+            <SettingField
+              label="Google Client ID"
+              type="text"
+              value={googleClientId}
+              onChange={setGoogleClientId}
+              configured={config?.google_client_id?.configured}
+              onClear={() => handleClear('google_client_id')}
+            />
+            <SettingField
+              label="Google Client Secret"
+              type="password"
+              value={googleClientSecret}
+              onChange={setGoogleClientSecret}
+              configured={config?.google_client_secret?.configured}
+              onClear={() => handleClear('google_client_secret')}
+            />
+            <SettingField
+              label="Claude API Key (Try-It Mode)"
+              type="password"
+              value={claudeTryitKey}
+              onChange={setClaudeTryitKey}
+              configured={config?.claude_tryit_key?.configured}
+              onClear={() => handleClear('claude_tryit_key')}
+            />
           </div>
 
           <button
@@ -233,6 +240,39 @@ function ConfigRow({ label, entry }: { label: string; entry: ConfigEntry }) {
       <span className="text-gray-800 text-xs">
         {entry.configured ? entry.masked : '—'}
       </span>
+    </div>
+  );
+}
+
+function SettingField({ label, type, value, onChange, configured, onClear }: {
+  label: string;
+  type: string;
+  value: string;
+  onChange: (v: string) => void;
+  configured?: boolean;
+  onClear: () => void;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-bold text-gray-600 mb-1">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={configured ? 'Currently set — leave blank to keep' : 'Not configured'}
+          className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono"
+        />
+        {configured && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="px-3 py-2 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
     </div>
   );
 }

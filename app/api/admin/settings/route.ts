@@ -67,7 +67,7 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  let body: Record<string, string>;
+  let body: Record<string, unknown>;
   try {
     body = await request.json();
   } catch {
@@ -79,7 +79,11 @@ export async function PUT(request: NextRequest) {
 
   for (const key of allowedKeys) {
     if (key in body) {
-      await setAdminConfig(key, body[key]);
+      const value = body[key];
+      if (typeof value !== 'string') {
+        return Response.json({ error: `Invalid value for ${key}: must be a string` }, { status: 400 });
+      }
+      await setAdminConfig(key, value);
       updates.push(key);
     }
   }
