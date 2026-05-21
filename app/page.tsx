@@ -1657,8 +1657,8 @@ function AgentChat({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600">
-        Describe your band, lineup, and stage layout in plain English. The AI will set up your stage plot, input list, monitors, and more.
+      <p className="text-xs text-gray-500">
+        Describe your band in plain English. The AI builds your stage plot, input list, and monitors.
       </p>
 
       {/* API Key input */}
@@ -1769,9 +1769,10 @@ function AgentChat({
       )}
 
       {/* Input */}
-      <div className="flex gap-2">
-        <input
-          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white"
+      <div className="flex gap-2 items-end">
+        <textarea
+          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white resize-none"
+          rows={4}
           placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, stage layout, setlist...'}
           value={input}
           disabled={!canSend}
