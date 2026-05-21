@@ -1560,6 +1560,86 @@ function AgentChat({
     }
   }
 
+  // Expand a stage slot into one or more input channels based on role keywords.
+  // Produces a realistic skeleton — user refines mic/stand details from here.
+  function expandSlotToInputs(slot: StageSlot): Omit<InputChannel, 'ch'>[] {
+    const role = (slot.role || '').toLowerCase();
+    const name = slot.name;
+    const results: Omit<InputChannel, 'ch'>[] = [];
+
+    const add = (inst: string, mic: string, stand: string, notes?: string) =>
+      results.push({ inst, mic, stand, notes: notes || name });
+
+    // Drums — expand to full kit
+    if (role.includes('drum')) {
+      add('Kick', 'Beta 52 / D6', 'Short Boom', name);
+      add('Snare', 'SM57', 'Short Boom', name);
+      add('Hi-Hat', 'Condenser', 'Small Boom', name);
+      add('Rack Tom', 'Clip', 'N/A', name);
+      add('Floor Tom', 'Clip', 'N/A', name);
+      add('OH L', 'Condenser', 'Tall Boom', name);
+      add('OH R', 'Condenser', 'Tall Boom', name);
+    }
+    // Bass — DI, possibly amp mic
+    else if (role.includes('bass')) {
+      add('Bass DI', 'DI', 'N/A', name);
+      if (role.includes('amp')) add('Bass Amp', 'SM57 / e906', 'Short Boom', name);
+    }
+    // Keys / keyboard / piano
+    else if (role.includes('key') || role.includes('piano') || role.includes('organ')) {
+      if (role.includes('piano') && (role.includes('hi') || role.includes('lo') || role.includes('mic'))) {
+        add('Piano Hi', 'Condenser', 'Tall Boom', name);
+        add('Piano Lo', 'Condenser', 'Tall Boom', name);
+      }
+      if (role.includes('stereo')) {
+        add('Keys L', 'DI', 'N/A', name);
+        add('Keys R', 'DI', 'N/A', name);
+      } else {
+        add('Keys', 'DI', 'N/A', name);
+      }
+    }
+    // Guitar
+    else if (role.includes('gtr') || role.includes('guitar')) {
+      add('Guitar', 'SM57 / e906', 'Short Boom', name);
+    }
+    // Horn instruments — one channel each
+    else if (role.includes('sax')) {
+      add('Sax', 'SM57 / Clip', 'Tall Boom', name);
+    } else if (role.includes('trumpet') || role.includes('tpt') || role.includes('pet')) {
+      add('Trumpet', 'SM57 / Clip', 'Tall Boom', name);
+    } else if (role.includes('trombone') || role.includes('bone')) {
+      add('Trombone', 'SM57 / Clip', 'Tall Boom', name);
+    }
+    // Horn section (grouped zone) — expand per instrument in the role
+    else if (role.includes('horn') || (role.includes('sax') && role.includes('tpt'))) {
+      const parts = role.split(/[,&+\/]/);
+      for (const part of parts) {
+        const p = part.trim().toLowerCase();
+        if (p.includes('sax')) add('Sax', 'SM57 / Clip', 'Tall Boom', name);
+        else if (p.includes('tpt') || p.includes('trumpet') || p.includes('pet')) add('Trumpet', 'SM57 / Clip', 'Tall Boom', name);
+        else if (p.includes('bone') || p.includes('trombone')) add('Trombone', 'SM57 / Clip', 'Tall Boom', name);
+        else if (p) add(part.trim(), 'SM57 / Clip', 'Tall Boom', name);
+      }
+    }
+    // Lead vocals
+    else if (role.includes('lead vox') || role.includes('lead vocal') || role.includes('singer') || role.includes('vox')) {
+      add('Lead Vox', 'Beta 58', 'Straight', name);
+    }
+    // Generic fallback — one channel
+    else {
+      add(slot.role || name, '', '', name);
+    }
+
+    // Add vocal mic if role mentions BGV, vocal, or singing alongside an instrument
+    if (!role.includes('lead vox') && !role.includes('lead vocal') && !role.includes('singer')) {
+      if (role.includes('bgv') || role.includes('vocal') || role.includes('vox') || role.includes('sing')) {
+        add('BGV', 'SM58', 'Boom', name);
+      }
+    }
+
+    return results;
+  }
+
   function validateToolInput(name: string, input: Record<string, unknown>): string | null {
     switch (name) {
       case 'update_stage_plot':
@@ -1608,19 +1688,14 @@ function AgentChat({
             const newPlot = toolInput.stagePlot as StageSlot[];
             const result = { ...p, stagePlot: newPlot };
 
-            // Always cascade: replace inputs and monitors with skeleton
-            // generated from the new stage plot. The AI is building a new
-            // show — old defaults are irrelevant. User refines from here.
+            // Always cascade: expand stage slots into per-channel input list.
+            // Each slot may produce multiple channels based on role keywords.
             let ch = 1;
             const inputs: InputChannel[] = [];
             for (const slot of newPlot) {
-              inputs.push({
-                ch: ch++,
-                inst: slot.role || slot.name,
-                mic: '',
-                stand: '',
-                notes: slot.name,
-              });
+              for (const input of expandSlotToInputs(slot)) {
+                inputs.push({ ...input, ch: ch++ });
+              }
             }
             result.inputs = inputs;
 
