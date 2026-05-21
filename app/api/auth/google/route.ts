@@ -4,7 +4,8 @@ import { NextRequest } from 'next/server';
 export async function GET(request: NextRequest) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {
-    return Response.json({ error: 'GOOGLE_CLIENT_ID not configured' }, { status: 500 });
+    const origin = request.nextUrl.origin;
+    return Response.redirect(`${origin}/#error=google_not_configured`);
   }
 
   const origin = request.nextUrl.origin;

@@ -192,7 +192,7 @@ function initGoogleToken(): GoogleToken | null {
 }
 
 export default function Page() {
-  const [tab, setTab] = useState<'show' | 'setup'>('show');
+  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>('show');
   const [config, setConfig] = useState<AppConfig>(initConfig);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -207,6 +207,14 @@ export default function Page() {
   const [isOffline, setIsOffline] = useState(() =>
     typeof window !== 'undefined' ? !navigator.onLine : false
   );
+  const [googleError] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    if (window.location.hash === '#error=google_not_configured') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      return 'Google Drive is not configured on this server. The site owner needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.';
+    }
+    return '';
+  });
 
   // ── Persist to localStorage on change ─────────────────────────────────
   useEffect(() => {
@@ -266,6 +274,16 @@ export default function Page() {
           >
             Setup
           </button>
+          <button
+            onClick={() => setTab('ai')}
+            className={`flex-1 py-3 text-center font-bold text-sm uppercase tracking-wide transition-colors ${
+              tab === 'ai'
+                ? 'border-b-2 border-black text-black'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            AI Designer
+          </button>
           {tab === 'show' && (
             <button
               onClick={() => setShowPrintModal(true)}
@@ -284,10 +302,18 @@ export default function Page() {
       </div>
 
       {/* ── Content ────────────────────────────────────────────────────── */}
-      {tab === 'show' ? (
+      {tab === 'show' && (
         <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
-      ) : (
-        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
+      )}
+      {tab === 'setup' && (
+        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
+      )}
+      {tab === 'ai' && (
+        <div className="p-4 md:p-8">
+          <div className="max-w-4xl mx-auto">
+            <AgentChat config={config} updateConfig={updateConfig} />
+          </div>
+        </div>
       )}
 
       {/* ── Print Modal ─────────────────────────────────────────────── */}
@@ -1335,6 +1361,519 @@ function SortableMonitorRow({
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT CHAT (AI Show Designer panel in Setup tab)
+// ════════════════════════════════════════════════════════════════════════════
+
+interface AgentMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+    status: 'pending' | 'applied' | 'rejected';
+  }>;
+}
+
+function AgentChat({
+  config,
+  updateConfig,
+}: {
+  config: AppConfig;
+  updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
+}) {
+  const [apiKey, setApiKey] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('showrunr-claude-key') || sessionStorage.getItem('showrunr-claude-key') || '';
+  });
+  const [rememberKey, setRememberKey] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !!localStorage.getItem('showrunr-claude-key');
+  });
+  const [showKey, setShowKey] = useState(false);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState('');
+  const [tryitRemaining, setTryitRemaining] = useState<number | null>(null);
+  const [tryitExhausted, setTryitExhausted] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const configRef = useRef(config);
+  useEffect(() => { configRef.current = config; }, [config]);
+
+  // Persist key when rememberKey changes
+  useEffect(() => {
+    if (rememberKey && apiKey) {
+      localStorage.setItem('showrunr-claude-key', apiKey);
+    } else {
+      localStorage.removeItem('showrunr-claude-key');
+      sessionStorage.removeItem('showrunr-claude-key');
+    }
+  }, [rememberKey, apiKey]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streaming]);
+
+  // Build Claude API message array from our messages (including tool results)
+  function buildApiMessages(): Array<{ role: string; content: unknown }> {
+    const apiMsgs: Array<{ role: string; content: unknown }> = [];
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        apiMsgs.push({ role: 'user', content: msg.content });
+      } else {
+        // Assistant message with possible tool calls
+        const blocks: Array<Record<string, unknown>> = [];
+        if (msg.content) blocks.push({ type: 'text', text: msg.content });
+        if (msg.toolCalls) {
+          for (const tc of msg.toolCalls) {
+            blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input });
+          }
+        }
+        apiMsgs.push({ role: 'assistant', content: blocks.length === 1 && blocks[0].type === 'text' ? msg.content : blocks });
+
+        // Add tool results if any tools were resolved
+        if (msg.toolCalls?.some((tc) => tc.status !== 'pending')) {
+          const resultBlocks: Array<Record<string, unknown>> = [];
+          for (const tc of msg.toolCalls) {
+            if (tc.status === 'applied') {
+              resultBlocks.push({ type: 'tool_result', tool_use_id: tc.id, content: `Applied. ${tc.name} updated successfully.` });
+            } else if (tc.status === 'rejected') {
+              resultBlocks.push({ type: 'tool_result', tool_use_id: tc.id, content: 'Rejected by user.', is_error: true });
+            }
+          }
+          if (resultBlocks.length > 0) {
+            apiMsgs.push({ role: 'user', content: resultBlocks });
+          }
+        }
+      }
+    }
+    return apiMsgs;
+  }
+
+  async function sendMessage(text?: string) {
+    const userText = text ?? input.trim();
+    if (!userText || streaming) return;
+
+    setInput('');
+    setError('');
+
+    const userMsg: AgentMessage = { role: 'user', content: userText };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setStreaming(true);
+
+    try {
+      const apiMessages = [...buildApiMessages(), { role: 'user', content: userText }];
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+      const res = await fetch('/api/agent/chat', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          messages: apiMessages,
+          currentConfig: configRef.current,
+          configHash: '',
+        }),
+      });
+
+      // Check try-it remaining
+      const remaining = res.headers.get('X-Tryit-Remaining');
+      if (remaining !== null) setTryitRemaining(parseInt(remaining, 10));
+
+      if (!res.ok) {
+        const err = await res.json();
+        if (err.tryitExhausted) setTryitExhausted(true);
+        throw new Error(err.error || 'Request failed');
+      }
+
+      // Parse SSE stream
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let assistantText = '';
+      const toolCalls: AgentMessage['toolCalls'] = [];
+      let currentToolId = '';
+      let currentToolName = '';
+      let currentToolJson = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(data);
+
+            if (event.type === 'content_block_start') {
+              if (event.content_block?.type === 'tool_use') {
+                currentToolId = event.content_block.id;
+                currentToolName = event.content_block.name;
+                currentToolJson = '';
+              }
+            } else if (event.type === 'content_block_delta') {
+              if (event.delta?.type === 'text_delta') {
+                assistantText += event.delta.text;
+                // Live update the assistant message
+                setMessages([...newMessages, { role: 'assistant', content: assistantText, toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined }]);
+              } else if (event.delta?.type === 'input_json_delta') {
+                currentToolJson += event.delta.partial_json;
+              }
+            } else if (event.type === 'content_block_stop') {
+              if (currentToolId) {
+                try {
+                  const input = JSON.parse(currentToolJson);
+                  toolCalls.push({ id: currentToolId, name: currentToolName, input, status: 'pending' });
+                } catch {
+                  // Malformed tool JSON — skip
+                }
+                currentToolId = '';
+                currentToolName = '';
+                currentToolJson = '';
+              }
+            }
+          } catch {
+            // Skip unparseable SSE lines
+          }
+        }
+      }
+
+      setMessages([...newMessages, { role: 'assistant', content: assistantText, toolCalls: toolCalls.length > 0 ? toolCalls : undefined }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  function validateToolInput(name: string, input: Record<string, unknown>): string | null {
+    switch (name) {
+      case 'update_stage_plot':
+        if (!Array.isArray(input.stagePlot)) return 'stagePlot must be an array';
+        break;
+      case 'update_inputs':
+        if (!Array.isArray(input.inputs)) return 'inputs must be an array';
+        break;
+      case 'update_monitors':
+        if (!Array.isArray(input.monitors)) return 'monitors must be an array';
+        break;
+      case 'update_setlist':
+        if (!Array.isArray(input.setlist)) return 'setlist must be an array';
+        break;
+      case 'update_notes':
+        if (!Array.isArray(input.notes)) return 'notes must be an array';
+        break;
+      case 'update_show_info':
+        if (input.showInfo && typeof input.showInfo !== 'object') return 'showInfo must be an object';
+        break;
+    }
+    return null;
+  }
+
+  function applyToolCall(msgIdx: number, toolIdx: number) {
+    setMessages((prev) => {
+      const updated = [...prev];
+      const msg = { ...updated[msgIdx], toolCalls: [...(updated[msgIdx].toolCalls || [])] };
+      const tc = msg.toolCalls![toolIdx];
+
+      const validationError = validateToolInput(tc.name, tc.input);
+      if (validationError) {
+        setError(`Invalid tool output: ${validationError}`);
+        msg.toolCalls![toolIdx] = { ...tc, status: 'rejected' as const };
+        updated[msgIdx] = msg;
+        return updated;
+      }
+
+      msg.toolCalls![toolIdx] = { ...tc, status: 'applied' as const };
+      updated[msgIdx] = msg;
+
+      const toolInput = tc.input;
+      updateConfig((p) => {
+        switch (tc.name) {
+          case 'update_stage_plot':
+            return { ...p, stagePlot: toolInput.stagePlot as StageSlot[] };
+          case 'update_inputs':
+            return { ...p, inputs: toolInput.inputs as InputChannel[] };
+          case 'update_monitors':
+            return { ...p, monitors: toolInput.monitors as MonitorMix[] };
+          case 'update_setlist':
+            return { ...p, setlist: toolInput.setlist as SetlistSong[] };
+          case 'update_notes':
+            return { ...p, notes: toolInput.notes as GeneralNote[] };
+          case 'update_show_info': {
+            const si = toolInput.showInfo as { bandName?: string; eventDate?: string; venue?: string } | undefined;
+            const lineup = toolInput.lineup as string | undefined;
+            return {
+              ...p,
+              ...(lineup ? { lineup } : {}),
+              showInfo: si ? { ...p.showInfo, ...si } : p.showInfo,
+            };
+          }
+          default:
+            return p;
+        }
+      });
+
+      return updated;
+    });
+  }
+
+  function rejectToolCall(msgIdx: number, toolIdx: number) {
+    setMessages((prev) => {
+      const updated = [...prev];
+      const msg = { ...updated[msgIdx], toolCalls: [...(updated[msgIdx].toolCalls || [])] };
+      msg.toolCalls![toolIdx] = { ...msg.toolCalls![toolIdx], status: 'rejected' as const };
+      updated[msgIdx] = msg;
+      return updated;
+    });
+  }
+
+  const hasPendingTools = messages.some((m) => m.toolCalls?.some((tc) => tc.status === 'pending'));
+  const canSend = !streaming && !hasPendingTools && (!!apiKey || (!tryitExhausted));
+  const needsKey = !apiKey && tryitExhausted;
+
+  const toolNameLabels: Record<string, string> = {
+    update_stage_plot: 'Stage Plot',
+    update_inputs: 'Input List',
+    update_monitors: 'Monitor Mixes',
+    update_setlist: 'Setlist',
+    update_notes: 'General Notes',
+    update_show_info: 'Show Info',
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600">
+        Describe your band, lineup, and stage layout in plain English. The AI will set up your stage plot, input list, monitors, and more.
+      </p>
+
+      {/* API Key input */}
+      {!apiKey && !tryitExhausted && tryitRemaining === null && (
+        <p className="text-xs text-gray-500">
+          Try it free — or enter your own <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline">Claude API key</a> for unlimited use.
+        </p>
+      )}
+
+      {tryitRemaining !== null && !apiKey && (
+        <p className="text-xs text-gray-500">
+          {tryitRemaining} free message{tryitRemaining !== 1 ? 's' : ''} remaining.
+          <button onClick={() => setShowKey(true)} className="underline ml-1">Add your own key</button> for unlimited use.
+        </p>
+      )}
+
+      {(needsKey || apiKey || showKey) && (
+        <div className="flex items-center gap-2">
+          <input
+            type={showKey ? 'text' : 'password'}
+            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white font-mono"
+            placeholder="sk-ant-..."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <button
+            onClick={() => setShowKey(!showKey)}
+            className="px-2 py-2 text-xs text-gray-500 hover:text-gray-700"
+          >
+            {showKey ? 'Hide' : 'Show'}
+          </button>
+          {apiKey && (
+            <button
+              onClick={() => { setApiKey(''); localStorage.removeItem('showrunr-claude-key'); sessionStorage.removeItem('showrunr-claude-key'); }}
+              className="px-2 py-2 text-xs text-red-500 hover:text-red-700"
+            >
+              Clear
+            </button>
+          )}
+          <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+            <input type="checkbox" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)} />
+            Remember
+          </label>
+        </div>
+      )}
+
+      {/* Chat messages */}
+      <div className="border border-gray-200 rounded-lg p-3 min-h-[200px] max-h-[calc(100vh-320px)] overflow-y-auto space-y-3 text-sm bg-white">
+        {messages.length === 0 && !streaming && (
+          <p className="text-gray-400 text-center py-8">
+            Start by describing your band. For example:<br />
+            <span className="italic">&quot;We&apos;re a 5-piece rock band. Lead vocals and guitar up front, drums center back, bass stage left, keys stage right.&quot;</span>
+          </p>
+        )}
+        {messages.map((msg, msgIdx) => (
+          <div key={msgIdx} className={msg.role === 'user' ? 'text-right' : ''}>
+            {msg.role === 'user' ? (
+              <div className="inline-block bg-black text-white rounded-lg px-3 py-2 max-w-[85%] text-left">
+                {msg.content}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {msg.content && (
+                  <div className="bg-gray-100 rounded-lg px-3 py-2 whitespace-pre-wrap">{msg.content}</div>
+                )}
+                {msg.toolCalls?.map((tc, tcIdx) => (
+                  <div key={tc.id} className="border border-gray-300 rounded-lg p-3 bg-gray-50">
+                    <p className="text-xs font-bold text-gray-500 mb-2">
+                      Update: {toolNameLabels[tc.name] || tc.name}
+                    </p>
+                    <div className="text-xs text-gray-600 mb-2 max-h-32 overflow-y-auto">
+                      <ToolCallPreview name={tc.name} input={tc.input} />
+                    </div>
+                    {tc.status === 'pending' ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => applyToolCall(msgIdx, tcIdx)}
+                          className="px-3 py-1 text-xs font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+                        >
+                          Apply
+                        </button>
+                        <button
+                          onClick={() => rejectToolCall(msgIdx, tcIdx)}
+                          className="px-3 py-1 text-xs font-bold bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-100 transition-colors"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <p className={`text-xs font-bold ${tc.status === 'applied' ? 'text-green-600' : 'text-red-500'}`}>
+                        {tc.status === 'applied' ? 'Applied' : 'Rejected'}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {streaming && (
+          <div className="text-gray-400 text-xs animate-pulse">Thinking...</div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {error && (
+        <p className="text-sm text-red-600">{error}</p>
+      )}
+
+      {/* Input */}
+      <div className="flex gap-2">
+        <input
+          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white"
+          placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, stage layout, setlist...'}
+          value={input}
+          disabled={!canSend}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+        />
+        <button
+          onClick={() => sendMessage()}
+          disabled={!canSend || !input.trim()}
+          className="px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ToolCallPreview({ name, input }: { name: string; input: Record<string, unknown> }) {
+  const fallback = <pre className="whitespace-pre-wrap">{JSON.stringify(input, null, 2)}</pre>;
+  switch (name) {
+    case 'update_stage_plot': {
+      const slots = input.stagePlot;
+      if (!Array.isArray(slots)) return fallback;
+      return (
+        <ul className="space-y-0.5">
+          {slots.map((s: Record<string, unknown>, i: number) => (
+            <li key={i}>
+              <span className="font-bold">{String(s.name)}</span> — {String(s.role)}, {String(s.pos)}
+              {s.featured ? ' (featured)' : ''}{s.power ? ' [POWER]' : ''}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case 'update_inputs': {
+      const inputs = input.inputs;
+      if (!Array.isArray(inputs)) return fallback;
+      return (
+        <ul className="space-y-0.5">
+          {inputs.map((inp: Record<string, unknown>, i: number) => (
+            <li key={i}>
+              Ch {String(inp.ch)}: {String(inp.inst)} — {String(inp.mic)}, {String(inp.stand)}{inp.notes ? ` (${String(inp.notes)})` : ''}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case 'update_monitors': {
+      const monitors = input.monitors;
+      if (!Array.isArray(monitors)) return fallback;
+      return (
+        <ul className="space-y-0.5">
+          {monitors.map((m: Record<string, unknown>, i: number) => (
+            <li key={i}>
+              Mix {String(m.mix)}: {String(m.name)} — {String(m.needs)}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case 'update_setlist': {
+      const songs = input.setlist;
+      if (!Array.isArray(songs)) return fallback;
+      return (
+        <ul className="space-y-0.5">
+          {songs.map((s: Record<string, unknown>, i: number) => (
+            <li key={i}>
+              {String(s.position)}. {String(s.title)} — {String(s.lead)}{s.notes ? ` (${String(s.notes)})` : ''}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case 'update_notes': {
+      const notes = input.notes;
+      if (!Array.isArray(notes)) return fallback;
+      return (
+        <ul className="space-y-0.5">
+          {notes.map((n: Record<string, unknown>, i: number) => (
+            <li key={i}><span className="font-bold">{String(n.label)}:</span> {String(n.text)}</li>
+          ))}
+        </ul>
+      );
+    }
+    case 'update_show_info': {
+      const si = input.showInfo as Record<string, unknown> | undefined;
+      const lineup = input.lineup;
+      return (
+        <ul className="space-y-0.5">
+          {si?.bandName ? <li>Band: {String(si.bandName)}</li> : null}
+          {si?.eventDate ? <li>Date: {String(si.eventDate)}</li> : null}
+          {si?.venue ? <li>Venue: {String(si.venue)}</li> : null}
+          {lineup ? <li>Lineup: {String(lineup)}</li> : null}
+        </ul>
+      );
+    }
+    default:
+      return fallback;
+  }
+}
+
 const labelCls = 'block text-xs font-bold text-gray-500 uppercase mb-1';
 const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:p-6';
 const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors';
@@ -1344,11 +1883,13 @@ function SetupTab({
   config,
   updateConfig,
   googleToken,
+  googleError,
   onDisconnectGoogle,
 }: {
   config: AppConfig;
   updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
   googleToken: GoogleToken | null;
+  googleError?: string;
   onDisconnectGoogle: () => void;
 }) {
   const [sheetUrl, setSheetUrl] = useState('');
@@ -1859,6 +2400,9 @@ function SetupTab({
               <p className="text-sm text-gray-600">
                 Connect Google Drive to auto-match charts to songs by role (Lyrics, Guitar, Bass, etc.).
               </p>
+              {googleError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{googleError}</p>
+              )}
               <a
                 href="/api/auth/google"
                 className="inline-block px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
