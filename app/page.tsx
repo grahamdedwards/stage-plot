@@ -1708,9 +1708,8 @@ function AgentChat({
       {/* Chat messages */}
       <div className="border border-gray-200 rounded-lg p-3 min-h-[200px] max-h-[calc(100vh-320px)] overflow-y-auto space-y-3 text-sm bg-white">
         {messages.length === 0 && !streaming && (
-          <p className="text-gray-400 text-center py-8">
-            Start by describing your band. For example:<br />
-            <span className="italic">&quot;We&apos;re a 5-piece rock band. Lead vocals and guitar up front, drums center back, bass stage left, keys stage right.&quot;</span>
+          <p className="text-gray-400 text-center text-xs py-4">
+            Describe your band below to get started.
           </p>
         )}
         {messages.map((msg, msgIdx) => (
@@ -1772,7 +1771,7 @@ function AgentChat({
       <div className="flex gap-2 items-end">
         <textarea
           className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white resize-none"
-          rows={4}
+          rows={12}
           placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, stage layout, setlist...'}
           value={input}
           disabled={!canSend}
