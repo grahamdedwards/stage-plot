@@ -1608,42 +1608,37 @@ function AgentChat({
             const newPlot = toolInput.stagePlot as StageSlot[];
             const result = { ...p, stagePlot: newPlot };
 
-            // Cascade: auto-generate skeleton input list if agent didn't provide one
-            // Only cascade if the current input list is empty or has fewer items than
-            // the new plot (avoids overwriting a manually curated list)
-            if (p.inputs.length === 0 || p.inputs.length < newPlot.length) {
-              let ch = 1;
-              const inputs: InputChannel[] = [];
-              for (const slot of newPlot) {
-                inputs.push({
-                  ch: ch++,
-                  inst: slot.role || slot.name,
-                  mic: '',
-                  stand: '',
-                  notes: slot.name,
-                });
-              }
-              result.inputs = inputs;
+            // Always cascade: replace inputs and monitors with skeleton
+            // generated from the new stage plot. The AI is building a new
+            // show — old defaults are irrelevant. User refines from here.
+            let ch = 1;
+            const inputs: InputChannel[] = [];
+            for (const slot of newPlot) {
+              inputs.push({
+                ch: ch++,
+                inst: slot.role || slot.name,
+                mic: '',
+                stand: '',
+                notes: slot.name,
+              });
             }
+            result.inputs = inputs;
 
-            // Cascade: auto-generate skeleton monitor mixes if empty
-            if (p.monitors.length === 0) {
-              const mixMap = new Map<number, string[]>();
-              for (const slot of newPlot) {
-                const names = mixMap.get(slot.mix) || [];
-                names.push(slot.name);
-                mixMap.set(slot.mix, names);
-              }
-              const monitors: MonitorMix[] = [];
-              for (const [mix, names] of Array.from(mixMap.entries()).sort((a, b) => a[0] - b[0])) {
-                monitors.push({
-                  mix,
-                  name: names.join(', '),
-                  needs: '',
-                });
-              }
-              result.monitors = monitors;
+            const mixMap = new Map<number, string[]>();
+            for (const slot of newPlot) {
+              const names = mixMap.get(slot.mix) || [];
+              names.push(slot.name);
+              mixMap.set(slot.mix, names);
             }
+            const monitors: MonitorMix[] = [];
+            for (const [mix, names] of Array.from(mixMap.entries()).sort((a, b) => a[0] - b[0])) {
+              monitors.push({
+                mix,
+                name: names.join(', '),
+                needs: '',
+              });
+            }
+            result.monitors = monitors;
 
             return result;
           }
