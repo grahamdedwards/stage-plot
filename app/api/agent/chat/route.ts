@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
+import { kv } from '@vercel/kv';
 import { SYSTEM_PROMPT, TOOLS } from '@/lib/agent';
+import { getAdminConfig } from '@/lib/admin-config';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MAX_BODY_SIZE = 100_000; // 100KB
@@ -8,30 +10,48 @@ const BYOA_MODEL = 'claude-sonnet-4-5-20250514';
 const TRYIT_MAX_TOKENS = 2048;
 const BYOA_MAX_TOKENS = 4096;
 const TRYIT_QUOTA = 10;
+const QUOTA_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
-// Quota store. In-memory for local dev; production should use Vercel KV
-// (add @vercel/kv and swap this implementation before launch).
-// Every try-it request decrements — no turn-type detection needed, which
-// eliminates bypass vectors from crafted payloads.
-const tryitQuota = new Map<string, { count: number; resetAt: number }>();
+// In-memory fallback when KV is unavailable
+const fallbackQuota = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(request: NextRequest): string {
   return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 }
 
-function consumeTryitQuota(ip: string): { allowed: boolean; remaining: number } {
+function consumeFallbackQuota(ip: string): { allowed: boolean; remaining: number } {
   const now = Date.now();
-  const ttl = 30 * 24 * 60 * 60 * 1000; // 30 days
-  let entry = tryitQuota.get(ip);
+  const ttl = QUOTA_TTL_SECONDS * 1000;
+  let entry = fallbackQuota.get(ip);
   if (!entry || now > entry.resetAt) {
     entry = { count: 0, resetAt: now + ttl };
-    tryitQuota.set(ip, entry);
+    fallbackQuota.set(ip, entry);
   }
   if (entry.count >= TRYIT_QUOTA) {
     return { allowed: false, remaining: 0 };
   }
   entry.count++;
   return { allowed: true, remaining: Math.max(0, TRYIT_QUOTA - entry.count) };
+}
+
+async function consumeTryitQuota(ip: string): Promise<{ allowed: boolean; remaining: number }> {
+  try {
+    const key = `quota:${ip}`;
+    const count = await kv.incr(key);
+
+    // Set TTL on first use
+    if (count === 1) {
+      await kv.expire(key, QUOTA_TTL_SECONDS);
+    }
+
+    if (count > TRYIT_QUOTA) {
+      return { allowed: false, remaining: 0 };
+    }
+    return { allowed: true, remaining: Math.max(0, TRYIT_QUOTA - count) };
+  } catch {
+    // KV unavailable — fall back to in-memory
+    return consumeFallbackQuota(ip);
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -54,7 +74,7 @@ export async function POST(request: NextRequest) {
 
   // Determine auth mode
   const clientKey = request.headers.get('authorization')?.replace('Bearer ', '');
-  const serverKey = process.env.CLAUDE_TRYIT_KEY;
+  const serverKey = await getAdminConfig('claude_tryit_key');
   const ip = getClientIp(request);
 
   let apiKey: string;
@@ -69,7 +89,7 @@ export async function POST(request: NextRequest) {
     maxTokens = BYOA_MAX_TOKENS;
   } else if (serverKey) {
     // Try-it mode — every request costs quota, no bypass vectors
-    const quota = consumeTryitQuota(ip);
+    const quota = await consumeTryitQuota(ip);
     if (!quota.allowed) {
       return Response.json(
         { error: 'Free messages used up. Enter your own Claude API key to continue.', tryitExhausted: true },
