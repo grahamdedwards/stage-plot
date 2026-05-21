@@ -9,25 +9,17 @@ const TRYIT_MAX_TOKENS = 2048;
 const BYOA_MAX_TOKENS = 4096;
 const TRYIT_QUOTA = 10;
 
-// In-memory quota store (per design doc, should be Vercel KV in production).
-// For MVP/dev, in-memory is acceptable — will upgrade to KV before prod launch.
+// Quota store. In-memory for local dev; production should use Vercel KV
+// (add @vercel/kv and swap this implementation before launch).
+// Every try-it request decrements — no turn-type detection needed, which
+// eliminates bypass vectors from crafted payloads.
 const tryitQuota = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(request: NextRequest): string {
   return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 }
 
-function isUserInitiatedTurn(messages: Array<{ role: string; content: unknown }>): boolean {
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== 'user') return false;
-  if (typeof last.content === 'string') return true;
-  if (Array.isArray(last.content)) {
-    return last.content.some((b: { type?: string }) => b.type === 'text');
-  }
-  return false;
-}
-
-function checkTryitQuota(ip: string): { allowed: boolean; remaining: number } {
+function consumeTryitQuota(ip: string): { allowed: boolean; remaining: number } {
   const now = Date.now();
   const ttl = 30 * 24 * 60 * 60 * 1000; // 30 days
   let entry = tryitQuota.get(ip);
@@ -35,16 +27,11 @@ function checkTryitQuota(ip: string): { allowed: boolean; remaining: number } {
     entry = { count: 0, resetAt: now + ttl };
     tryitQuota.set(ip, entry);
   }
-  return { allowed: entry.count < TRYIT_QUOTA, remaining: Math.max(0, TRYIT_QUOTA - entry.count) };
-}
-
-function decrementTryitQuota(ip: string): number {
-  const entry = tryitQuota.get(ip);
-  if (entry) {
-    entry.count++;
-    return Math.max(0, TRYIT_QUOTA - entry.count);
+  if (entry.count >= TRYIT_QUOTA) {
+    return { allowed: false, remaining: 0 };
   }
-  return 0;
+  entry.count++;
+  return { allowed: true, remaining: Math.max(0, TRYIT_QUOTA - entry.count) };
 }
 
 export async function POST(request: NextRequest) {
@@ -81,20 +68,15 @@ export async function POST(request: NextRequest) {
     model = BYOA_MODEL;
     maxTokens = BYOA_MAX_TOKENS;
   } else if (serverKey) {
-    // Try-it mode
-    const quota = checkTryitQuota(ip);
+    // Try-it mode — every request costs quota, no bypass vectors
+    const quota = consumeTryitQuota(ip);
     if (!quota.allowed) {
       return Response.json(
         { error: 'Free messages used up. Enter your own Claude API key to continue.', tryitExhausted: true },
         { status: 429, headers: { 'X-Tryit-Remaining': '0' } },
       );
     }
-    // Only decrement on user-initiated turns
-    if (isUserInitiatedTurn(body.messages)) {
-      tryitRemaining = decrementTryitQuota(ip);
-    } else {
-      tryitRemaining = quota.remaining;
-    }
+    tryitRemaining = quota.remaining;
     apiKey = serverKey;
     model = TRYIT_MODEL;
     maxTokens = TRYIT_MAX_TOKENS;

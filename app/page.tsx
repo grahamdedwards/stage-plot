@@ -1560,15 +1560,47 @@ function AgentChat({
     }
   }
 
+  function validateToolInput(name: string, input: Record<string, unknown>): string | null {
+    switch (name) {
+      case 'update_stage_plot':
+        if (!Array.isArray(input.stagePlot)) return 'stagePlot must be an array';
+        break;
+      case 'update_inputs':
+        if (!Array.isArray(input.inputs)) return 'inputs must be an array';
+        break;
+      case 'update_monitors':
+        if (!Array.isArray(input.monitors)) return 'monitors must be an array';
+        break;
+      case 'update_setlist':
+        if (!Array.isArray(input.setlist)) return 'setlist must be an array';
+        break;
+      case 'update_notes':
+        if (!Array.isArray(input.notes)) return 'notes must be an array';
+        break;
+      case 'update_show_info':
+        if (input.showInfo && typeof input.showInfo !== 'object') return 'showInfo must be an object';
+        break;
+    }
+    return null;
+  }
+
   function applyToolCall(msgIdx: number, toolIdx: number) {
     setMessages((prev) => {
       const updated = [...prev];
       const msg = { ...updated[msgIdx], toolCalls: [...(updated[msgIdx].toolCalls || [])] };
-      const tc = { ...msg.toolCalls![toolIdx], status: 'applied' as const };
-      msg.toolCalls![toolIdx] = tc;
+      const tc = msg.toolCalls![toolIdx];
+
+      const validationError = validateToolInput(tc.name, tc.input);
+      if (validationError) {
+        setError(`Invalid tool output: ${validationError}`);
+        msg.toolCalls![toolIdx] = { ...tc, status: 'rejected' as const };
+        updated[msgIdx] = msg;
+        return updated;
+      }
+
+      msg.toolCalls![toolIdx] = { ...tc, status: 'applied' as const };
       updated[msgIdx] = msg;
 
-      // Apply the tool call to config
       const toolInput = tc.input;
       updateConfig((p) => {
         switch (tc.name) {
@@ -1610,7 +1642,8 @@ function AgentChat({
     });
   }
 
-  const canSend = !streaming && (!!apiKey || (!tryitExhausted));
+  const hasPendingTools = messages.some((m) => m.toolCalls?.some((tc) => tc.status === 'pending'));
+  const canSend = !streaming && !hasPendingTools && (!!apiKey || (!tryitExhausted));
   const needsKey = !apiKey && tryitExhausted;
 
   const toolNameLabels: Record<string, string> = {
@@ -1739,7 +1772,7 @@ function AgentChat({
       <div className="flex gap-2">
         <input
           className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white"
-          placeholder={needsKey ? 'Enter API key above to continue...' : 'Describe your band, stage layout, setlist...'}
+          placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, stage layout, setlist...'}
           value={input}
           disabled={!canSend}
           onChange={(e) => setInput(e.target.value)}
@@ -1758,14 +1791,16 @@ function AgentChat({
 }
 
 function ToolCallPreview({ name, input }: { name: string; input: Record<string, unknown> }) {
+  const fallback = <pre className="whitespace-pre-wrap">{JSON.stringify(input, null, 2)}</pre>;
   switch (name) {
     case 'update_stage_plot': {
-      const slots = input.stagePlot as Array<{ name: string; pos: string; role: string; mix: number; power?: boolean; featured?: boolean }>;
+      const slots = input.stagePlot;
+      if (!Array.isArray(slots)) return fallback;
       return (
         <ul className="space-y-0.5">
-          {slots.map((s, i) => (
+          {slots.map((s: Record<string, unknown>, i: number) => (
             <li key={i}>
-              <span className="font-bold">{s.name}</span> — {s.role}, {s.pos}
+              <span className="font-bold">{String(s.name)}</span> — {String(s.role)}, {String(s.pos)}
               {s.featured ? ' (featured)' : ''}{s.power ? ' [POWER]' : ''}
             </li>
           ))}
@@ -1773,65 +1808,69 @@ function ToolCallPreview({ name, input }: { name: string; input: Record<string, 
       );
     }
     case 'update_inputs': {
-      const inputs = input.inputs as Array<{ ch: number; inst: string; mic: string; stand: string; notes?: string }>;
+      const inputs = input.inputs;
+      if (!Array.isArray(inputs)) return fallback;
       return (
         <ul className="space-y-0.5">
-          {inputs.map((inp, i) => (
+          {inputs.map((inp: Record<string, unknown>, i: number) => (
             <li key={i}>
-              Ch {inp.ch}: {inp.inst} — {inp.mic}, {inp.stand}{inp.notes ? ` (${inp.notes})` : ''}
+              Ch {String(inp.ch)}: {String(inp.inst)} — {String(inp.mic)}, {String(inp.stand)}{inp.notes ? ` (${String(inp.notes)})` : ''}
             </li>
           ))}
         </ul>
       );
     }
     case 'update_monitors': {
-      const monitors = input.monitors as Array<{ mix: number; name: string; needs: string }>;
+      const monitors = input.monitors;
+      if (!Array.isArray(monitors)) return fallback;
       return (
         <ul className="space-y-0.5">
-          {monitors.map((m, i) => (
+          {monitors.map((m: Record<string, unknown>, i: number) => (
             <li key={i}>
-              Mix {m.mix}: {m.name} — {m.needs}
+              Mix {String(m.mix)}: {String(m.name)} — {String(m.needs)}
             </li>
           ))}
         </ul>
       );
     }
     case 'update_setlist': {
-      const songs = input.setlist as Array<{ position: number; title: string; lead: string; notes?: string }>;
+      const songs = input.setlist;
+      if (!Array.isArray(songs)) return fallback;
       return (
         <ul className="space-y-0.5">
-          {songs.map((s, i) => (
+          {songs.map((s: Record<string, unknown>, i: number) => (
             <li key={i}>
-              {s.position}. {s.title} — {s.lead}{s.notes ? ` (${s.notes})` : ''}
+              {String(s.position)}. {String(s.title)} — {String(s.lead)}{s.notes ? ` (${String(s.notes)})` : ''}
             </li>
           ))}
         </ul>
       );
     }
     case 'update_notes': {
-      const notes = input.notes as Array<{ label: string; text: string }>;
+      const notes = input.notes;
+      if (!Array.isArray(notes)) return fallback;
       return (
         <ul className="space-y-0.5">
-          {notes.map((n, i) => (
-            <li key={i}><span className="font-bold">{n.label}:</span> {n.text}</li>
+          {notes.map((n: Record<string, unknown>, i: number) => (
+            <li key={i}><span className="font-bold">{String(n.label)}:</span> {String(n.text)}</li>
           ))}
         </ul>
       );
     }
     case 'update_show_info': {
-      const si = input.showInfo as { bandName?: string; eventDate?: string; venue?: string } | undefined;
-      const lineup = input.lineup as string | undefined;
+      const si = input.showInfo as Record<string, unknown> | undefined;
+      const lineup = input.lineup;
       return (
         <ul className="space-y-0.5">
-          {si?.bandName && <li>Band: {si.bandName}</li>}
-          {si?.eventDate && <li>Date: {si.eventDate}</li>}
-          {si?.venue && <li>Venue: {si.venue}</li>}
-          {lineup && <li>Lineup: {lineup}</li>}
+          {si?.bandName ? <li>Band: {String(si.bandName)}</li> : null}
+          {si?.eventDate ? <li>Date: {String(si.eventDate)}</li> : null}
+          {si?.venue ? <li>Venue: {String(si.venue)}</li> : null}
+          {lineup ? <li>Lineup: {String(lineup)}</li> : null}
         </ul>
       );
     }
     default:
-      return <pre className="whitespace-pre-wrap">{JSON.stringify(input, null, 2)}</pre>;
+      return fallback;
   }
 }
 
