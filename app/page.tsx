@@ -1747,12 +1747,8 @@ function AgentChat({
       )}
 
       {/* Chat messages */}
-      <div className="border border-gray-200 rounded-lg p-3 min-h-[200px] max-h-[calc(100vh-320px)] overflow-y-auto space-y-3 text-sm bg-white">
-        {messages.length === 0 && !streaming && (
-          <p className="text-gray-400 text-center text-xs py-4">
-            Describe your band below to get started.
-          </p>
-        )}
+      <div className="border border-gray-200 rounded-lg p-3 max-h-[calc(100vh-420px)] overflow-y-auto space-y-3 text-sm bg-white">
+        {messages.length === 0 && !streaming && null}
         {messages.map((msg, msgIdx) => (
           <div key={msgIdx} className={msg.role === 'user' ? 'text-right' : ''}>
             {msg.role === 'user' ? (
@@ -1813,7 +1809,7 @@ function AgentChat({
         <textarea
           className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white resize-none"
           rows={12}
-          placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, stage layout, setlist...'}
+          placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, lineup, and stage layout...'}
           value={input}
           disabled={!canSend}
           onChange={(e) => setInput(e.target.value)}
