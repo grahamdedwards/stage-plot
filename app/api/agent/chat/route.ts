@@ -5,8 +5,8 @@ import { getAdminConfig } from '@/lib/admin-config';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MAX_BODY_SIZE = 100_000; // 100KB
-const TRYIT_MODEL = 'claude-sonnet-4-5-20250514';
-const BYOA_MODEL = 'claude-sonnet-4-5-20250514';
+const TRYIT_MODEL = 'claude-sonnet-4-6';
+const BYOA_MODEL = 'claude-sonnet-4-6';
 const TRYIT_MAX_TOKENS = 2048;
 const BYOA_MAX_TOKENS = 4096;
 const TRYIT_QUOTA = 10;
