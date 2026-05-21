@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { kv } from '@vercel/kv';
+import { createClient } from 'redis';
 import { SYSTEM_PROMPT, TOOLS } from '@/lib/agent';
 import { getAdminConfig } from '@/lib/admin-config';
 
@@ -12,7 +12,7 @@ const BYOA_MAX_TOKENS = 4096;
 const TRYIT_QUOTA = 10;
 const QUOTA_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
-// In-memory fallback when KV is unavailable
+// In-memory fallback when Redis is unavailable
 const fallbackQuota = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(request: NextRequest): string {
@@ -35,26 +35,36 @@ function consumeFallbackQuota(ip: string): { allowed: boolean; remaining: number
 }
 
 async function consumeTryitQuota(ip: string): Promise<{ allowed: boolean; remaining: number }> {
+  const url = process.env.REDIS_URL;
+  if (!url) return consumeFallbackQuota(ip);
+
+  let client;
   try {
+    client = createClient({ url });
+    await client.connect();
+
     const key = `quota:${ip}`;
-    const count = await kv.incr(key);
+    const count = await client.incr(key);
 
     // Always set TTL — idempotent, ensures TTL is present even if a
     // prior EXPIRE failed. Isolated so EXPIRE failure doesn't discard
     // the successful INCR result.
     try {
-      await kv.expire(key, QUOTA_TTL_SECONDS);
+      await client.expire(key, QUOTA_TTL_SECONDS);
     } catch {
       // TTL not set — key persists without expiry. Acceptable: worst
       // case is this IP's quota never resets, which is conservative.
     }
+
+    await client.disconnect();
 
     if (count > TRYIT_QUOTA) {
       return { allowed: false, remaining: 0 };
     }
     return { allowed: true, remaining: Math.max(0, TRYIT_QUOTA - count) };
   } catch {
-    // KV unavailable — fall back to in-memory
+    try { await client?.disconnect(); } catch { /* ignore */ }
+    // Redis unavailable — fall back to in-memory
     return consumeFallbackQuota(ip);
   }
 }
