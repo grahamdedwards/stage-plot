@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getAdminConfig } from '@/lib/admin-config';
 
 // Exchanges auth code for tokens, then redirects back to app with tokens in hash fragment
 export async function GET(request: NextRequest) {
@@ -14,8 +15,8 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'Invalid state — possible CSRF' }, { status: 403 });
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = await getAdminConfig('google_client_id');
+  const clientSecret = await getAdminConfig('google_client_secret');
   if (!clientId || !clientSecret) {
     return Response.json({ error: 'Google OAuth not configured' }, { status: 500 });
   }

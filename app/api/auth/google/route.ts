@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
+import { getAdminConfig } from '@/lib/admin-config';
 
 // Redirects to Google OAuth consent screen
 export async function GET(request: NextRequest) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientId = await getAdminConfig('google_client_id');
   if (!clientId) {
     const origin = request.nextUrl.origin;
     return Response.redirect(`${origin}/#error=google_not_configured`);
