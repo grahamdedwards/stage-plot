@@ -1903,14 +1903,64 @@ function ToolCallPreview({ name, input }: { name: string; input: Record<string, 
       const slots = input.stagePlot;
       if (!Array.isArray(slots)) return fallback;
       return (
-        <ul className="space-y-0.5">
-          {slots.map((s: Record<string, unknown>, i: number) => (
-            <li key={i}>
-              <span className="font-bold">{String(s.name)}</span> — {String(s.role)}, {String(s.pos)}
-              {s.featured ? ' (featured)' : ''}{s.power ? ' [POWER]' : ''}
-            </li>
-          ))}
-        </ul>
+        <div className="space-y-2">
+          <div>
+            <p className="font-bold text-gray-500 mb-1">Stage Plot</p>
+            <ul className="space-y-0.5">
+              {slots.map((s: Record<string, unknown>, i: number) => (
+                <li key={i}>
+                  <span className="font-bold">{String(s.name)}</span> — {String(s.role)}, {String(s.pos)}
+                  {s.featured ? ' (featured)' : ''}{s.power ? ' [POWER]' : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <p className="font-bold text-gray-500 mb-1">Input List (auto-generated, editable after apply)</p>
+            <ul className="space-y-0.5">
+              {(() => {
+                let ch = 1;
+                return slots.flatMap((s: Record<string, unknown>) => {
+                  const role = String(s.role || '').toLowerCase();
+                  const nm = String(s.name);
+                  const lines: { ch: number; inst: string; note: string }[] = [];
+                  const add = (inst: string) => lines.push({ ch: ch++, inst, note: nm });
+                  if (role.includes('drum')) { add('Kick'); add('Snare'); add('Hi-Hat'); add('Rack Tom'); add('Floor Tom'); add('OH L'); add('OH R'); }
+                  else if (role.includes('bass')) { add('Bass DI'); if (role.includes('amp')) add('Bass Amp'); }
+                  else if (role.includes('key') || role.includes('piano') || role.includes('organ')) {
+                    if (role.includes('piano') && (role.includes('hi') || role.includes('lo') || role.includes('mic'))) { add('Piano Hi'); add('Piano Lo'); }
+                    if (role.includes('stereo')) { add('Keys L'); add('Keys R'); } else add('Keys');
+                  }
+                  else if (role.includes('gtr') || role.includes('guitar')) add('Guitar');
+                  else if (role.includes('sax')) add('Sax');
+                  else if (role.includes('trumpet') || role.includes('tpt') || role.includes('pet')) add('Trumpet');
+                  else if (role.includes('trombone') || role.includes('bone')) add('Trombone');
+                  else if (role.includes('lead vox') || role.includes('lead vocal') || role.includes('singer') || role.includes('vox')) add('Lead Vox');
+                  else add(String(s.role || s.name));
+                  if (!role.includes('lead vox') && !role.includes('singer') && (role.includes('bgv') || role.includes('vocal'))) add('BGV');
+                  return lines;
+                }).map((l) => <li key={l.ch}>Ch {l.ch}: {l.inst} ({l.note})</li>);
+              })()}
+            </ul>
+          </div>
+          <div>
+            <p className="font-bold text-gray-500 mb-1">Monitor Mixes (auto-generated)</p>
+            <ul className="space-y-0.5">
+              {(() => {
+                const mixMap = new Map<number, string[]>();
+                for (const s of slots) {
+                  const mix = Number(s.mix);
+                  const names = mixMap.get(mix) || [];
+                  names.push(String(s.name));
+                  mixMap.set(mix, names);
+                }
+                return Array.from(mixMap.entries()).sort((a, b) => a[0] - b[0]).map(([mix, names]) => (
+                  <li key={mix}>Mix {mix}: {names.join(', ')}</li>
+                ));
+              })()}
+            </ul>
+          </div>
+        </div>
       );
     }
     case 'update_inputs': {
