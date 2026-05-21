@@ -1,8 +1,14 @@
 # Design: Vercel KV Foundation + Admin Settings
 
-**Status:** Draft v1.1 — Codex cross-check fixes applied
+**Status:** Implemented (PRs #19, #20) — v1.1 + SDK correction
 **Depends on:** None (foundational infrastructure)
-**Scope:** Add Vercel KV as the persistence layer; build an admin settings panel for operator self-service configuration; migrate try-it quota from in-memory to KV
+**Scope:** Add Redis as the persistence layer; build an admin settings panel for operator self-service configuration; migrate try-it quota from in-memory to Redis
+
+> **Implementation note (session 22):** This doc was written targeting `@vercel/kv` (Upstash REST).
+> That product was sunset by Vercel in Dec 2024. PR #19 was built and merged against the deprecated SDK.
+> PR #20 corrected it to use the `redis` (node-redis) package with `REDIS_URL` from Vercel Marketplace
+> Redis Cloud. The design (key namespace, sentinel logic, fallback behavior, admin UX) is unchanged —
+> only the driver layer differs. All references to "KV" below mean Redis; the key-value data model is the same.
 
 ---
 
@@ -33,15 +39,15 @@ This design targets the **paid tier** infrastructure. Free tier is unaffected �
 
 ### 1. Persistence Layer: Vercel KV
 
-**What:** Add `@vercel/kv` (Upstash Redis, managed by Vercel) as the single persistence dependency.
+**What:** Add `redis` (node-redis) via Vercel Marketplace Redis Cloud as the single persistence dependency. Connects via `REDIS_URL` env var (auto-injected by Vercel when the store is linked to the project).
 
-**Why KV over Postgres:**
+**Why Redis over Postgres:**
 - Our data is key-value shaped: config keys, quota counters, slug lookups
 - No relational queries needed
 - Zero schema migrations
 - Sub-millisecond reads
-- Native Vercel integration (one-click provision, auto-injected env vars)
-- Free tier (3k requests/day) covers development; Pro included tier (30k/day) covers production
+- Vercel Marketplace integration (provision + link + auto-injected env var)
+- Free tier available via Redis Cloud
 
 **KV key namespace:**
 
@@ -212,7 +218,7 @@ For development: `ADMIN_SECRET` goes in `.env.local`. KV works locally via the V
 
 | File | Action |
 |---|---|
-| `package.json` | Add `@vercel/kv` dependency |
+| `package.json` | Add `redis` dependency (replaced deprecated `@vercel/kv` in PR #20) |
 | `lib/admin-config.ts` | New — KV read helper with env var fallback |
 | `app/admin/page.tsx` | New — admin settings UI |
 | `app/api/admin/settings/route.ts` | New — GET/PUT admin config |
