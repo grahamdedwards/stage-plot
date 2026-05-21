@@ -42,13 +42,8 @@ export function serializeShow(config: AppConfig): string {
     inputs: config.inputs.map(({ id: _id, ...rest }) => rest),
     monitors: config.monitors.map(({ id: _id, ...rest }) => rest),
     notes: config.notes,
-    setlist: config.setlist.map(({ id: _id, position: _pos, charts, ...rest }) => {
-      // Omit runtime fields (id, position) and empty charts
-      const song: Record<string, unknown> = { ...rest };
-      if (charts && charts.length > 0) {
-        song.charts = charts;
-      }
-      return song as Omit<SetlistSong, 'id' | 'position'>;
+    setlist: config.setlist.map(({ id: _id, position: _pos, charts: _charts, ...rest }) => {
+      return rest as Omit<SetlistSong, 'id' | 'position'>;
     }),
   };
 
@@ -96,7 +91,7 @@ function fromYaml(content: string): AppConfig {
     ),
   };
 
-  if (doc.chartsSource?.folderId) {
+  if (doc.chartsSource?.folderId && (!doc.chartsSource.provider || doc.chartsSource.provider === 'drive')) {
     config.chartsRootFolderId = doc.chartsSource.folderId;
   }
 
@@ -126,6 +121,9 @@ function validate(parsed: unknown): asserts parsed is ShowFileV1 {
     throw new Error('Invalid show file — could not parse.');
   }
   const obj = parsed as Record<string, unknown>;
+  if (obj.format !== undefined && obj.format !== 'showrunr/v1') {
+    throw new Error(`Unsupported show file format: "${obj.format}". This version of ShowRunr supports "showrunr/v1".`);
+  }
   if (typeof obj.name !== 'string' || !obj.name) {
     throw new Error('Invalid show file — missing "name" field.');
   }
