@@ -27,6 +27,7 @@ import type {
   Chart,
 } from '@/lib/types';
 import { ensureSetlistSongIds, moveSetlistSong, ensureInputIds, moveInput, ensureMonitorIds, moveMonitor } from '@/lib/setlist';
+import { serializeShow, deserializeShow, slugify } from '@/lib/show-file';
 import {
   downloadAllCharts,
   getCacheStats,
@@ -2626,29 +2627,29 @@ function SetupTab({
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Export / Import</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Save your show as a <code>.json</code> file for backup or sharing between devices.
+            Save your show as a <code>.yaml</code> file for backup or sharing between devices.
           </p>
           <div className="flex flex-wrap gap-3">
             <button
               className="px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
               onClick={() => {
-                const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+                const yaml = serializeShow(config);
+                const blob = new Blob([yaml], { type: 'application/x-yaml' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                const slug = config.showInfo.bandName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'show';
-                a.download = `${slug}.showrunr.json`;
+                a.download = `${slugify(config.showInfo.bandName)}.showrunr.yaml`;
                 a.click();
                 URL.revokeObjectURL(url);
               }}
             >
-              Export Show (.json)
+              Export Show (.yaml)
             </button>
             <label className="px-4 py-2 text-sm font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors cursor-pointer">
-              Import Show (.json)
+              Import Show
               <input
                 type="file"
-                accept=".json,application/json"
+                accept=".yaml,.yml,.json,application/x-yaml,application/json"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -2656,21 +2657,10 @@ function SetupTab({
                   const reader = new FileReader();
                   reader.onload = () => {
                     try {
-                      const parsed = JSON.parse(reader.result as string);
-                      if (
-                        !Array.isArray(parsed.stagePlot) ||
-                        !Array.isArray(parsed.inputs) ||
-                        !Array.isArray(parsed.setlist) ||
-                        !Array.isArray(parsed.monitors) ||
-                        !Array.isArray(parsed.notes) ||
-                        !parsed.showInfo?.bandName
-                      ) {
-                        alert('Invalid show file — missing required sections (stagePlot, inputs, setlist, monitors, notes, showInfo).');
-                        return;
-                      }
-                      updateConfig(() => withStableIds(parsed as AppConfig));
-                    } catch {
-                      alert('Could not read file — invalid JSON.');
+                      const imported = deserializeShow(reader.result as string, file.name);
+                      updateConfig(() => withStableIds(imported));
+                    } catch (err) {
+                      alert(err instanceof Error ? err.message : 'Could not read file.');
                     }
                   };
                   reader.readAsText(file);
