@@ -1909,7 +1909,8 @@ function AgentChat({
       {/* API Key input */}
       {!apiKey && !tryitExhausted && tryitRemaining === null && (
         <p className="text-xs text-gray-500">
-          Try it free — or enter your own <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline">Claude API key</a> for unlimited use.
+          Try it free — or <button onClick={() => setShowKey(true)} className="underline">enter your own API key</button> for unlimited use.
+          {' '}<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-gray-400 underline">(get a key)</a>
         </p>
       )}
 
