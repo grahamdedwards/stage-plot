@@ -497,7 +497,6 @@ function DraggableStageSlot({ pos, slot }: { pos: StagePosition; slot: StageSlot
 
 function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[]; onMove: (fromPos: StagePosition, toPos: StagePosition) => void }) {
   const slotMap = Object.fromEntries(stagePlot.map((s) => [s.pos, s]));
-  const hasMidStage = (['MSR', 'MSC', 'MSL'] as StagePosition[]).some((p) => slotMap[p]);
   const [activeSlot, setActiveSlot] = useState<StageSlot | null>(null);
 
   const sensors = useSensors(
@@ -532,16 +531,12 @@ function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[];
             <DraggableStageSlot key={pos} pos={pos} slot={slotMap[pos]} />
           ))}
         </div>
-        {hasMidStage && (
-          <>
-            <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
-            <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
-              {(['MSR', 'MSC', 'MSL'] as StagePosition[]).map((pos) => (
-                <DraggableStageSlot key={pos} pos={pos} slot={slotMap[pos]} />
-              ))}
-            </div>
-          </>
-        )}
+        <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
+        <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
+          {(['MSR', 'MSC', 'MSL'] as StagePosition[]).map((pos) => (
+            <DraggableStageSlot key={pos} pos={pos} slot={slotMap[pos]} />
+          ))}
+        </div>
         <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
         <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
           {(['DSR', 'DSC', 'DSL'] as StagePosition[]).map((pos) => (
@@ -2428,8 +2423,8 @@ function SetupTab({
               stagePlot={config.stagePlot}
               onMove={(fromPos, toPos) => updateConfig((p) => {
                 const arr = p.stagePlot.map((s) => ({ ...s }));
-                const fromIdx = arr.findIndex((s) => s.pos === fromPos);
-                const toIdx = arr.findIndex((s) => s.pos === toPos);
+                const fromIdx = arr.findLastIndex((s) => s.pos === fromPos);
+                const toIdx = arr.findLastIndex((s) => s.pos === toPos);
                 if (fromIdx === -1) return p;
                 if (toIdx !== -1) {
                   // Swap positions
