@@ -567,8 +567,8 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
               Notes
             </h2>
             <ul className="space-y-3 text-sm text-gray-700 bg-yellow-50 p-6 rounded-xl border border-yellow-200">
-              {band.notes.map((n) => (
-                <li key={n.label}><strong>{n.label}:</strong> {n.text}</li>
+              {band.notes.map((n, i) => (
+                <li key={i}><strong>{n.label}:</strong> {n.text}</li>
               ))}
             </ul>
           </div>
@@ -2252,7 +2252,7 @@ function SetupTab({
                 onChange={(e) =>
                   updateConfig((p) => ({
                     ...p,
-                    showInfo: { ...p.showInfo, showName: e.target.value || undefined },
+                    showInfo: { ...p.showInfo, showName: e.target.value.trim() || undefined },
                   }))
                 }
               />
