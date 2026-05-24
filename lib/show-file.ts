@@ -5,7 +5,7 @@ import type { StageSlot, InputChannel, MonitorMix, GeneralNote, SetlistSong } fr
 // ─── Internal AppConfig shape (mirrors page.tsx) ─────────────────────────────
 // Duplicated here to avoid circular deps; the canonical definition stays in page.tsx.
 interface AppConfig {
-  showInfo: { bandName: string; eventDate: string; venue: string };
+  showInfo: { bandName: string; eventDate: string; venue: string; showName?: string };
   lineup?: string;
   stagePlot: StageSlot[];
   inputs: InputChannel[];
@@ -19,6 +19,7 @@ interface AppConfig {
 interface ShowFileV1 {
   format: 'showrunr/v1';
   name: string;
+  showName?: string;
   date?: string;
   venue?: string;
   lineup?: string;
@@ -35,6 +36,7 @@ export function serializeShow(config: AppConfig): string {
   const doc: ShowFileV1 = {
     format: 'showrunr/v1',
     name: config.showInfo.bandName,
+    showName: config.showInfo.showName || undefined,
     date: config.showInfo.eventDate || undefined,
     venue: config.showInfo.venue || undefined,
     lineup: config.lineup || undefined,
@@ -80,6 +82,7 @@ function fromYaml(content: string): AppConfig {
       bandName: doc.name,
       eventDate: doc.date ?? '',
       venue: doc.venue ?? '',
+      showName: doc.showName?.trim() || undefined,
     },
     lineup: doc.lineup,
     stagePlot: doc.stagePlot,

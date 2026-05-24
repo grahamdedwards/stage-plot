@@ -167,7 +167,7 @@ export const TOOLS = [
   },
   {
     name: 'update_show_info',
-    description: 'Update show metadata (band name, date, venue, lineup).',
+    description: 'Update show metadata (band name, show name, date, venue, lineup).',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -175,6 +175,7 @@ export const TOOLS = [
           type: 'object' as const,
           properties: {
             bandName: { type: 'string' as const },
+            showName: { type: 'string' as const, description: 'Show name for the file (e.g., "Friday Night at The Roxy")' },
             eventDate: { type: 'string' as const, description: 'ISO date (e.g., "2026-06-15")' },
             venue: { type: 'string' as const },
           },
