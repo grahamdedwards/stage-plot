@@ -1919,18 +1919,12 @@ function AgentChat({
       {(needsKey || apiKey || showKey) && (
         <div className="flex items-center gap-2">
           <input
-            type={showKey ? 'text' : 'password'}
+            type="password"
             className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white font-mono"
             placeholder="sk-ant-..."
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
-          <button
-            onClick={() => setShowKey(!showKey)}
-            className="px-2 py-2 text-xs text-gray-500 hover:text-gray-700"
-          >
-            {showKey ? 'Hide' : 'Show'}
-          </button>
           {apiKey && (
             <button
               onClick={() => { setApiKey(''); localStorage.removeItem('showrunr-claude-key'); sessionStorage.removeItem('showrunr-claude-key'); }}
