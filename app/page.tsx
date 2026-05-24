@@ -44,7 +44,7 @@ const fallbackBand = getBand();
 
 // ─── Config shape stored in localStorage / URL ─────────────────────────────
 interface AppConfig {
-  showInfo: { bandName: string; eventDate: string; venue: string };
+  showInfo: { bandName: string; eventDate: string; venue: string; showName?: string };
   lineup?: string;
   stagePlot: StageSlot[];
   inputs: InputChannel[];
@@ -441,7 +441,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
   );
 }
 
-function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string }; isOffline: boolean; onReorder: (from: number, to: number) => void }) {
+function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -493,6 +493,9 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
       <div className="max-w-4xl mx-auto space-y-12">
         <header className="text-center border-b pb-8">
           <h1 className="text-4xl font-black tracking-tight uppercase">{band.name}</h1>
+          {showInfo.showName && (
+            <p className="text-xl font-semibold text-gray-600 mt-1">{showInfo.showName}</p>
+          )}
           <p className="text-lg font-semibold text-gray-700 mt-1">
             {showInfo.venue && showInfo.eventDate
               ? `${showInfo.venue} · ${showInfo.eventDate}`
@@ -1818,7 +1821,7 @@ function AgentChat({
       )}
 
       {/* Chat messages */}
-      {(messages.length > 0 || streaming) && <div className="border border-gray-200 rounded-lg p-3 max-h-[calc(100vh-420px)] overflow-y-auto space-y-3 text-sm bg-white">
+      {(messages.length > 0 || streaming) && <div className="border border-gray-200 rounded-lg p-3 max-h-[calc(100vh-280px)] overflow-y-auto space-y-3 text-sm bg-white">
         {messages.map((msg, msgIdx) => (
           <div key={msgIdx} className={msg.role === 'user' ? 'text-right' : ''}>
             {msg.role === 'user' ? (
@@ -1878,8 +1881,8 @@ function AgentChat({
       <div className="flex gap-2 items-end">
         <textarea
           className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-black bg-white resize-none"
-          rows={12}
-          placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : 'Describe your band, lineup, and stage layout...'}
+          rows={2}
+          placeholder={needsKey ? 'Enter API key above to continue...' : hasPendingTools ? 'Apply or reject pending changes first...' : messages.length > 0 ? 'Reply or ask a follow-up...' : 'Describe your band, lineup, and stage layout...'}
           value={input}
           disabled={!canSend}
           onChange={(e) => setInput(e.target.value)}
@@ -2020,6 +2023,7 @@ function ToolCallPreview({ name, input }: { name: string; input: Record<string, 
       return (
         <ul className="space-y-0.5">
           {si?.bandName ? <li>Band: {String(si.bandName)}</li> : null}
+          {si?.showName ? <li>Show: {String(si.showName)}</li> : null}
           {si?.eventDate ? <li>Date: {String(si.eventDate)}</li> : null}
           {si?.venue ? <li>Venue: {String(si.venue)}</li> : null}
           {lineup ? <li>Lineup: {String(lineup)}</li> : null}
@@ -2225,7 +2229,7 @@ function SetupTab({
         {/* ── 1. Show Info ────────────────────────────────────────────── */}
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Show Info</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className={labelCls}>Band Name</label>
               <input
@@ -2239,6 +2243,22 @@ function SetupTab({
                 }
               />
             </div>
+            <div>
+              <label className={labelCls}>Show Name</label>
+              <input
+                className={inputCls}
+                placeholder="e.g., Friday Night at The Roxy"
+                value={config.showInfo.showName ?? ''}
+                onChange={(e) =>
+                  updateConfig((p) => ({
+                    ...p,
+                    showInfo: { ...p.showInfo, showName: e.target.value || undefined },
+                  }))
+                }
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Event Date</label>
               <input
@@ -2449,7 +2469,59 @@ function SetupTab({
           />
         </section>
 
-        {/* ── 5. Setlist ──────────────────────────────────────────────── */}
+        {/* ── 5. Notes ──────────────────────────────────────────────── */}
+        <section className={sectionCls}>
+          <h2 className="text-lg font-bold mb-4">Notes</h2>
+          <div className="space-y-3">
+            {config.notes.map((note, idx) => (
+              <div key={idx} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center border-b border-gray-100 pb-3">
+                <div className="w-full sm:w-40 shrink-0">
+                  <label className={labelCls}>Label</label>
+                  <input
+                    className={inputCls}
+                    placeholder="e.g., Power"
+                    value={note.label}
+                    onChange={(e) => updateConfig((p) => {
+                      const arr = [...p.notes];
+                      arr[idx] = { ...arr[idx], label: e.target.value };
+                      return { ...p, notes: arr };
+                    })}
+                  />
+                </div>
+                <div className="flex-1 w-full">
+                  <label className={labelCls}>Text</label>
+                  <input
+                    className={inputCls}
+                    placeholder="Note content..."
+                    value={note.text}
+                    onChange={(e) => updateConfig((p) => {
+                      const arr = [...p.notes];
+                      arr[idx] = { ...arr[idx], text: e.target.value };
+                      return { ...p, notes: arr };
+                    })}
+                  />
+                </div>
+                <div className="pt-5">
+                  <button className={btnRemove} onClick={() => updateConfig((p) => ({
+                    ...p,
+                    notes: p.notes.filter((_, i) => i !== idx),
+                  }))}>X</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button
+            className={`${btnAdd} mt-3`}
+            onClick={() => updateConfig((p) => ({
+              ...p,
+              notes: [...p.notes, { label: '', text: '' }],
+            }))}
+          >
+            + Add Note
+          </button>
+        </section>
+
+        {/* ── 6. Setlist ──────────────────────────────────────────────── */}
         <section className={sectionCls}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold">Setlist</h2>
@@ -2638,7 +2710,7 @@ function SetupTab({
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${slugify(config.showInfo.bandName)}.showrunr.yaml`;
+                a.download = `${slugify(config.showInfo.showName || config.showInfo.bandName)}.showrunr.yaml`;
                 a.click();
                 URL.revokeObjectURL(url);
               }}
