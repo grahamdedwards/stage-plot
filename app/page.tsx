@@ -1730,12 +1730,14 @@ function AgentChat({
           case 'update_notes':
             return { ...p, notes: toolInput.notes as GeneralNote[] };
           case 'update_show_info': {
-            const si = toolInput.showInfo as { bandName?: string; eventDate?: string; venue?: string } | undefined;
+            const si = toolInput.showInfo as { bandName?: string; showName?: string; eventDate?: string; venue?: string } | undefined;
             const lineup = toolInput.lineup as string | undefined;
+            const merged = si ? { ...p.showInfo, ...si } : p.showInfo;
+            merged.showName = merged.showName?.trim() || undefined;
             return {
               ...p,
               ...(lineup ? { lineup } : {}),
-              showInfo: si ? { ...p.showInfo, ...si } : p.showInfo,
+              showInfo: merged,
             };
           }
           default:

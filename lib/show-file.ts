@@ -82,7 +82,7 @@ function fromYaml(content: string): AppConfig {
       bandName: doc.name,
       eventDate: doc.date ?? '',
       venue: doc.venue ?? '',
-      showName: doc.showName,
+      showName: doc.showName?.trim() || undefined,
     },
     lineup: doc.lineup,
     stagePlot: doc.stagePlot,
