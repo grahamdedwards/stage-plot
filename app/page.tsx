@@ -8,8 +8,11 @@ import {
   TouchSensor,
   useSensor,
   useSensors,
+  useDraggable,
+  useDroppable,
+  DragOverlay,
 } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   SortableContext,
   useSortable,
@@ -438,6 +441,131 @@ function StagePlotView({ band }: { band: BandConfig }) {
         <span className="text-[10px] font-bold text-gray-400">DSL</span>
       </div>
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DRAGGABLE STAGE PLOT (Setup tab — drag to reposition)
+// ════════════════════════════════════════════════════════════════════════════
+
+function DraggableStageSlot({ pos, slot }: { pos: StagePosition; slot: StageSlot | undefined }) {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `drop-${pos}` });
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: `drag-${pos}`,
+    disabled: !slot,
+    data: { pos },
+  });
+
+  const isFeatured = slot?.featured;
+
+  return (
+    <div ref={setDropRef} className="relative">
+      <div
+        ref={setDragRef}
+        {...attributes}
+        {...listeners}
+        className={`flex flex-col items-center rounded-lg p-2 text-center gap-0.5 border-2 transition-colors ${
+          isDragging
+            ? 'opacity-30 border-dashed border-gray-300'
+            : isOver
+              ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
+              : isFeatured
+                ? 'border-black bg-gray-900 text-white shadow-lg'
+                : slot
+                  ? 'border-dashed border-blue-100 bg-blue-50/30 cursor-grab'
+                  : 'border-dashed border-blue-100 bg-blue-50/30'
+        }`}
+      >
+        {slot ? (
+          <>
+            <p className="font-bold text-sm leading-tight uppercase">{slot.name}</p>
+            <p className={`text-[11px] leading-tight ${isFeatured ? 'opacity-80' : 'text-gray-600'}`}>{slot.role}</p>
+            <p className={`text-[10px] ${isFeatured ? 'opacity-60' : 'text-gray-400'}`}>Mix {slot.mix}</p>
+          </>
+        ) : (
+          <p className="text-[10px] text-gray-300 italic">empty</p>
+        )}
+        <div className="h-5 flex items-center justify-center">
+          {slot?.power && (
+            <span className="px-1.5 py-0.5 bg-yellow-400 text-[9px] font-bold rounded text-black">POWER</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[]; onMove: (fromPos: StagePosition, toPos: StagePosition) => void }) {
+  const slotMap = Object.fromEntries(stagePlot.map((s) => [s.pos, s]));
+  const hasMidStage = (['MSR', 'MSC', 'MSL'] as StagePosition[]).some((p) => slotMap[p]);
+  const [activeSlot, setActiveSlot] = useState<StageSlot | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const pos = event.active.data.current?.pos as StagePosition | undefined;
+    if (pos && slotMap[pos]) setActiveSlot(slotMap[pos]);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveSlot(null);
+    const { active, over } = event;
+    if (!over) return;
+    const fromPos = (active.id as string).replace('drag-', '') as StagePosition;
+    const toPos = (over.id as string).replace('drop-', '') as StagePosition;
+    if (fromPos !== toPos) onMove(fromPos, toPos);
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="bg-white border-4 border-gray-200 rounded-xl shadow-inner overflow-hidden">
+        <div className="flex justify-between px-3 pt-2 pb-1">
+          <span className="text-[10px] font-bold text-gray-400">USR</span>
+          <span className="text-[10px] font-bold text-gray-500 tracking-widest">UPSTAGE</span>
+          <span className="text-[10px] font-bold text-gray-400">USL</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 px-3 pb-2">
+          {(['USR', 'USC', 'USL'] as StagePosition[]).map((pos) => (
+            <DraggableStageSlot key={pos} pos={pos} slot={slotMap[pos]} />
+          ))}
+        </div>
+        {hasMidStage && (
+          <>
+            <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
+            <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
+              {(['MSR', 'MSC', 'MSL'] as StagePosition[]).map((pos) => (
+                <DraggableStageSlot key={pos} pos={pos} slot={slotMap[pos]} />
+              ))}
+            </div>
+          </>
+        )}
+        <div className="mx-3 border-t-2 border-dashed border-gray-300 my-1" />
+        <div className="grid grid-cols-3 gap-2 px-3 pt-2 pb-2">
+          {(['DSR', 'DSC', 'DSL'] as StagePosition[]).map((pos) => (
+            <DraggableStageSlot key={pos} pos={pos} slot={slotMap[pos]} />
+          ))}
+        </div>
+        <div className="flex justify-between px-3 pb-2 pt-1">
+          <span className="text-[10px] font-bold text-gray-400">DSR</span>
+          <span className="text-[10px] font-bold text-gray-500 tracking-widest">AUDIENCE / FOH</span>
+          <span className="text-[10px] font-bold text-gray-400">DSL</span>
+        </div>
+      </div>
+      <DragOverlay>
+        {activeSlot && (
+          <div className={`flex flex-col items-center rounded-lg p-2 text-center gap-0.5 border-2 shadow-xl ${
+            activeSlot.featured ? 'border-black bg-gray-900 text-white' : 'border-blue-300 bg-white'
+          }`}>
+            <p className="font-bold text-sm leading-tight uppercase">{activeSlot.name}</p>
+            <p className={`text-[11px] leading-tight ${activeSlot.featured ? 'opacity-80' : 'text-gray-600'}`}>{activeSlot.role}</p>
+          </div>
+        )}
+      </DragOverlay>
+      <p className="text-[10px] text-gray-400 text-center mt-2">Drag to reposition</p>
+    </DndContext>
   );
 }
 
@@ -1781,7 +1909,8 @@ function AgentChat({
       {/* API Key input */}
       {!apiKey && !tryitExhausted && tryitRemaining === null && (
         <p className="text-xs text-gray-500">
-          Try it free — or enter your own <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline">Claude API key</a> for unlimited use.
+          Try it free — or <button onClick={() => setShowKey(true)} className="underline">enter your own API key</button> for unlimited use.
+          {' '}<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-gray-400 underline">(get a key)</a>
         </p>
       )}
 
@@ -2294,6 +2423,23 @@ function SetupTab({
         {/* ── 2. Stage Plot ───────────────────────────────────────────── */}
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Stage Plot</h2>
+          <div className="mb-6">
+            <DraggableStagePlotView
+              stagePlot={config.stagePlot}
+              onMove={(fromPos, toPos) => updateConfig((p) => {
+                const arr = p.stagePlot.map((s) => ({ ...s }));
+                const fromIdx = arr.findIndex((s) => s.pos === fromPos);
+                const toIdx = arr.findIndex((s) => s.pos === toPos);
+                if (fromIdx === -1) return p;
+                if (toIdx !== -1) {
+                  // Swap positions
+                  arr[toIdx] = { ...arr[toIdx], pos: fromPos };
+                }
+                arr[fromIdx] = { ...arr[fromIdx], pos: toPos };
+                return { ...p, stagePlot: arr };
+              })}
+            />
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
