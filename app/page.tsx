@@ -275,10 +275,13 @@ export default function Page() {
           const cfg = withStableIds(data.config);
           setConfig(cfg);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-          // Clear publish ownership — this is someone else's show
-          localStorage.removeItem(PUBLISH_TOKEN_KEY);
-          localStorage.removeItem(PUBLISH_SLUG_KEY);
-          setPublishSlug('');
+          // Only clear ownership if this is someone else's show
+          const ownedSlug = localStorage.getItem(PUBLISH_SLUG_KEY);
+          if (ownedSlug !== data.slug) {
+            localStorage.removeItem(PUBLISH_TOKEN_KEY);
+            localStorage.removeItem(PUBLISH_SLUG_KEY);
+            setPublishSlug('');
+          }
           window.history.replaceState(null, '', window.location.pathname);
         }
       })
