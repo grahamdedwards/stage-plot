@@ -36,10 +36,10 @@ import {
   getCacheStats,
   clearChartCache,
   registerServiceWorker,
-  getCachedChartUrl,
   formatBytes,
   type DownloadProgress,
 } from '@/lib/chart-cache';
+import { loadPdfDoc, renderPage, destroyAllDocs, prefetchChart } from '@/lib/pdf-viewer';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
 import { getBand } from '@/lib/bands';
@@ -197,7 +197,11 @@ function initGoogleToken(): GoogleToken | null {
 }
 
 export default function Page() {
-  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>('show');
+  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>(() => {
+    if (typeof window === 'undefined') return 'show';
+    const h = window.location.hash;
+    return (h === '#error=google_not_configured' || h.startsWith('#google_auth=')) ? 'setup' : 'show';
+  });
   const [config, setConfig] = useState<AppConfig>(initConfig);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -212,19 +216,14 @@ export default function Page() {
   const [isOffline, setIsOffline] = useState(() =>
     typeof window !== 'undefined' ? !navigator.onLine : false
   );
-  const [googleError, setGoogleError] = useState('');
-
-  // After mount: detect Google auth redirect and switch to Setup tab
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash === '#error=google_not_configured') {
-      setTab('setup');
-      setGoogleError('Google Drive is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel environment variables, then redeploy.');
+  const [googleError] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    if (window.location.hash === '#error=google_not_configured') {
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    } else if (hash.startsWith('#google_auth=')) {
-      setTab('setup');
+      return 'Google Drive is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel environment variables, then redeploy.';
     }
-  }, []);
+    return '';
+  });
 
   // ── Persist to localStorage on change ─────────────────────────────────
   useEffect(() => {
@@ -325,7 +324,7 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' && (
-        <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
+        <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       )}
       {tab === 'setup' && (
         <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
@@ -582,7 +581,7 @@ function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[];
   );
 }
 
-function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; onReorder: (from: number, to: number) => void }) {
+function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToken, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -866,6 +865,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
                 roleFilter={effectiveRoleFilter}
                 allRoles={allRoles}
                 isOffline={isOffline}
+                accessToken={accessToken}
                 onChangeIdx={setNavigatorSongIdx}
                 onChangeRole={handleRoleChange}
                 onClose={() => setNavigatorSongIdx(null)}
@@ -879,7 +879,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, onReorder 
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CHART NAVIGATOR — full-screen overlay for showtime chart browsing
+// CHART NAVIGATOR — inline PDF viewer with page controls
 // ════════════════════════════════════════════════════════════════════════════
 
 const ROLE_COLORS: Record<string, string> = {
@@ -894,13 +894,14 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 function ChartNavigator({
-  setlist, currentIdx, roleFilter, allRoles, isOffline, onChangeIdx, onChangeRole, onClose,
+  setlist, currentIdx, roleFilter, allRoles, isOffline, accessToken, onChangeIdx, onChangeRole, onClose,
 }: {
   setlist: SetlistSong[];
   currentIdx: number;
   roleFilter: string;
   allRoles: string[];
   isOffline: boolean;
+  accessToken?: string;
   onChangeIdx: (idx: number) => void;
   onChangeRole: (role: string) => void;
   onClose: () => void;
@@ -909,44 +910,170 @@ function ChartNavigator({
   const charts = (song?.charts ?? []).filter(
     (c) => roleFilter === 'all' || c.role === roleFilter
   );
+  const [activeChartIdx, setActiveChartIdx] = useState(0);
+  const [pageNum, setPageNum] = useState(1);
+  const [numPages, setNumPages] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const docRef = useRef<import('pdfjs-dist').PDFDocumentProxy | null>(null);
+  const prevSongIdxRef = useRef(currentIdx);
 
-  // Keyboard nav
+  // Reset chart and page when song or available charts change
+  useEffect(() => {
+    if (currentIdx !== prevSongIdxRef.current) {
+      prevSongIdxRef.current = currentIdx;
+      setActiveChartIdx(0);
+      setPageNum(1);
+    }
+  }, [currentIdx]);
+
+  // Clamp activeChartIdx when filtered charts shrink (e.g., role filter change)
+  const clampedChartIdx = charts.length > 0 ? Math.min(activeChartIdx, charts.length - 1) : 0;
+  if (clampedChartIdx !== activeChartIdx) setActiveChartIdx(clampedChartIdx);
+
+  // Load and render PDF
+  const activeChart = charts[clampedChartIdx] ?? null;
+  const chartFileId = activeChart?.fileId;
+  const chartModifiedTime = activeChart?.modifiedTime;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!chartFileId) {
+      // Defer state reset to microtask to satisfy lint (no sync setState in effect)
+      Promise.resolve().then(() => {
+        if (cancelled) return;
+        docRef.current = null;
+        setNumPages(0);
+        setPageNum(1);
+        setLoading(false);
+      });
+      return () => { cancelled = true; };
+    }
+    const load = async () => {
+      setLoading(true);
+      try {
+        const doc = await loadPdfDoc(activeChart!, accessToken);
+        if (cancelled) return;
+        if (!doc) {
+          docRef.current = null;
+          setNumPages(0);
+          setPageNum(1);
+          return;
+        }
+        docRef.current = doc;
+        setNumPages(doc.numPages);
+        setPageNum(1);
+        if (canvasRef.current) {
+          await renderPage(doc, 1, canvasRef.current);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [chartFileId, chartModifiedTime, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-render on page change
+  useEffect(() => {
+    if (docRef.current && canvasRef.current && pageNum >= 1 && pageNum <= numPages) {
+      renderPage(docRef.current, pageNum, canvasRef.current);
+    }
+  }, [pageNum, numPages]);
+
+  // Prefetch N-1 and N+1
+  useEffect(() => {
+    for (const offset of [-1, 1]) {
+      const idx = currentIdx + offset;
+      if (idx < 0 || idx >= setlist.length) continue;
+      const neighborCharts = (setlist[idx]?.charts ?? []).filter(
+        (c) => roleFilter === 'all' || c.role === roleFilter
+      );
+      if (neighborCharts[0]) prefetchChart(neighborCharts[0], accessToken);
+    }
+  }, [currentIdx, setlist, roleFilter, accessToken]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { destroyAllDocs(); };
+  }, []);
+
+  // Keyboard nav: left/right = song, up/down = page
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft' && currentIdx > 0) onChangeIdx(currentIdx - 1);
       if (e.key === 'ArrowRight' && currentIdx < setlist.length - 1) onChangeIdx(currentIdx + 1);
+      if (e.key === 'ArrowUp' && pageNum > 1) { e.preventDefault(); setPageNum((p) => p - 1); }
+      if (e.key === 'ArrowDown' && pageNum < numPages) { e.preventDefault(); setPageNum((p) => p + 1); }
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [currentIdx, setlist.length, onChangeIdx, onClose]);
+  }, [currentIdx, setlist.length, pageNum, numPages, onChangeIdx, onClose]);
 
-  // Touch swipe
+  // Touch: dominant-axis lock — horizontal swipe = song, tap = page turn
   useEffect(() => {
     let startX = 0;
-    const onStart = (e: TouchEvent) => { startX = e.touches[0].clientX; };
+    let startY = 0;
+    let locked: 'h' | 'v' | null = null;
+
+    const onStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      locked = null;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (locked) return;
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (dx > 10 || dy > 10) locked = dx > dy ? 'h' : 'v';
+    };
     const onEnd = (e: TouchEvent) => {
       const dx = e.changedTouches[0].clientX - startX;
-      if (Math.abs(dx) > 60) {
+      const dy = e.changedTouches[0].clientY - startY;
+      const totalDisplacement = Math.abs(dx) + Math.abs(dy);
+
+      // Tap detection: page turn via left/right half
+      if (totalDisplacement < 10 && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const tapX = e.changedTouches[0].clientX;
+        if (tapX >= rect.left && tapX <= rect.right && e.changedTouches[0].clientY >= rect.top && e.changedTouches[0].clientY <= rect.bottom) {
+          const midX = rect.left + rect.width / 2;
+          if (tapX > midX && pageNum < numPages) setPageNum((p) => p + 1);
+          else if (tapX <= midX && pageNum > 1) setPageNum((p) => p - 1);
+        }
+        return;
+      }
+
+      // Horizontal swipe = song change
+      if (locked === 'h' && Math.abs(dx) > 60) {
         if (dx < 0 && currentIdx < setlist.length - 1) onChangeIdx(currentIdx + 1);
         if (dx > 0 && currentIdx > 0) onChangeIdx(currentIdx - 1);
       }
     };
+
     window.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchmove', onMove, { passive: true });
     window.addEventListener('touchend', onEnd, { passive: true });
     return () => {
       window.removeEventListener('touchstart', onStart);
+      window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onEnd);
     };
-  }, [currentIdx, setlist.length, onChangeIdx]);
+  }, [currentIdx, setlist.length, pageNum, numPages, onChangeIdx]);
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-gray-50">
         <button onClick={onClose} className="text-sm font-bold text-gray-600 hover:text-black">
-          &larr; Back to Setlist
+          &larr; Back
         </button>
+        <div className="text-center flex-1 px-2">
+          <p className="text-sm font-bold truncate">{song.title}</p>
+          <p className="text-[10px] text-gray-400">Song {currentIdx + 1} of {setlist.length}</p>
+        </div>
         <div className="flex items-center gap-2">
           {isOffline && (
             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded">
@@ -958,37 +1085,70 @@ function ChartNavigator({
             onChange={(e) => onChangeRole(e.target.value)}
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
           >
-            <option value="all">All Roles</option>
+            <option value="all">All Parts</option>
             {allRoles.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
       </div>
 
-      {/* Song info */}
-      <div className="px-4 pt-4 pb-2 text-center">
-        <p className="text-xs text-gray-400 uppercase">Song {currentIdx + 1} of {setlist.length}</p>
-        <h2 className="text-xl font-bold mt-1">{song.title}</h2>
-        {song.lead && <p className="text-sm text-gray-500 mt-0.5">{song.lead}</p>}
-      </div>
+      {/* Chart pill picker (multi-chart) */}
+      {charts.length > 1 && (
+        <div className="flex items-center gap-1 px-4 py-2 border-b bg-gray-50 overflow-x-auto">
+          {charts.map((c, i) => {
+            const color = ROLE_COLORS[c.role] ?? 'bg-gray-100 text-gray-700';
+            return (
+              <button
+                key={`${c.role}-${c.fileId}`}
+                onClick={() => { setActiveChartIdx(i); setPageNum(1); }}
+                className={`px-2 py-1 rounded text-xs font-bold shrink-0 transition-colors ${
+                  i === activeChartIdx ? `${color} ring-2 ring-black` : `${color} opacity-50 hover:opacity-75`
+                }`}
+              >
+                {c.role}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Charts list */}
-      <div className="flex-1 overflow-y-auto px-4 pb-4">
-        {charts.length > 0 ? (
-          <div className="space-y-2 max-w-lg mx-auto">
-            {charts.map((chart) => (
-              <ChartLink key={`${chart.role}-${chart.url}`} chart={chart} isOffline={isOffline} />
-            ))}
+      {/* PDF viewer */}
+      <div ref={containerRef} className="flex-1 flex items-center justify-center bg-gray-100 overflow-hidden relative">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+            <p className="text-sm text-gray-400 animate-pulse">Loading chart...</p>
           </div>
-        ) : (
-          <div className="flex items-center justify-center h-32 text-gray-400 text-sm italic">
+        )}
+        {charts.length === 0 ? (
+          <div className="text-gray-400 text-sm italic">
             {roleFilter !== 'all'
               ? `No ${roleFilter} chart for this song`
               : 'No charts for this song'}
           </div>
+        ) : activeChart && !activeChart.fileId ? (
+          <div className="text-center space-y-3">
+            <p className="text-sm text-gray-500">This chart can only be viewed externally</p>
+            <a
+              href={activeChart.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+            >
+              Open {activeChart.role} Chart &rarr;
+            </a>
+          </div>
+        ) : (
+          <canvas ref={canvasRef} className="max-w-full max-h-full" />
         )}
       </div>
 
-      {/* Prev / Next */}
+      {/* Page indicator */}
+      {numPages > 1 && (
+        <div className="text-center py-1 text-xs text-gray-400 bg-white border-t">
+          Page {pageNum} of {numPages}
+        </div>
+      )}
+
+      {/* Prev / Next Song */}
       <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
         <button
           onClick={() => onChangeIdx(currentIdx - 1)}
@@ -1006,83 +1166,6 @@ function ChartNavigator({
         </button>
       </div>
     </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// CHART LINK — resolves cached URL or falls back to Drive URL
-// ════════════════════════════════════════════════════════════════════════════
-
-function ChartLink({ chart, isOffline }: { chart: Chart; isOffline: boolean }) {
-  const [cachedUrl, setCachedUrl] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
-  const blobUrlRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getCachedChartUrl(chart).then((url) => {
-      if (!cancelled) {
-        // Revoke previous blob URL before setting new one
-        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = url;
-        setCachedUrl(url);
-        setChecked(true);
-      } else if (url) {
-        URL.revokeObjectURL(url);
-      }
-    }).catch(() => {
-      if (!cancelled) setChecked(true);
-    });
-    return () => {
-      cancelled = true;
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
-    };
-  }, [chart.fileId, chart.modifiedTime]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const color = ROLE_COLORS[chart.role] ?? 'bg-gray-100 text-gray-700';
-  const href = cachedUrl ?? chart.url;
-  const unavailable = isOffline && !cachedUrl && checked;
-
-  if (unavailable) {
-    return (
-      <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50 opacity-60">
-        <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${color}`}>
-          {chart.role}
-        </span>
-        <span className="text-sm text-gray-500 truncate flex-1">{chart.label ?? chart.role}</span>
-        <span className="px-2 py-0.5 bg-gray-200 text-gray-500 text-[10px] font-bold rounded shrink-0">
-          online only
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-    >
-      <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${color}`}>
-        {chart.role}
-      </span>
-      <span className="text-sm text-gray-800 truncate flex-1">{chart.label ?? chart.role}</span>
-      {cachedUrl && (
-        <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded shrink-0">
-          cached
-        </span>
-      )}
-      {(chart.dupeCount ?? 0) > 1 && (
-        <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded shrink-0">
-          {chart.dupeCount} found
-        </span>
-      )}
-      <span className="text-gray-400 text-sm shrink-0">&rarr;</span>
-    </a>
   );
 }
 
@@ -2228,6 +2311,7 @@ function SetupTab({
       if (version !== resolveVersionRef.current) return;
       if (res.status === 401) {
         setChartsError('Google session expired — reconnect Drive');
+        onDisconnectGoogle();
         return;
       }
       if (!res.ok) {
@@ -2255,7 +2339,7 @@ function SetupTab({
         setChartsResolving(false);
       }
     }
-  }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig]);
+  }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig, onDisconnectGoogle]);
 
   // Auto-resolve charts when setlist titles or folder ID change (debounced 1s)
   const resolveSignature = `${config.chartsRootFolderId ?? ''}\n${config.setlist.map((s) => s.title).join('\0')}`;
