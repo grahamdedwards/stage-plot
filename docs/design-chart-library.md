@@ -1,6 +1,6 @@
 # Design: Chart Library — Owner-Scoped, Reusable Across Shows
 
-**Status:** Draft v1.0 — Awaiting review
+**Status:** Draft v1.1 — Post-adversarial review (5 findings addressed)
 **Depends on:** Supabase backend (PR #44, merged)
 **Scope:** Replace show-scoped chart storage with an owner-scoped chart library. Charts are uploaded once, reused across all shows. Auto-matched to setlist songs by normalized title.
 
@@ -74,21 +74,39 @@ create index chart_library_song_key_idx on chart_library(owner_id, song_key);
 
 #### Song Key Normalization
 
+One canonical normalizer, shared between server and client (`lib/normalize.ts`). Matches the existing Drive batch resolution logic including leading article stripping:
+
 ```typescript
-function normalizeSongKey(title: string): string {
-  return title
+const LEADING_ARTICLES = /^(the|a|an)\s+/i;
+
+export function normalizeSongKey(title: string): string {
+  const key = title
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')  // strip punctuation
-    .replace(/\s+/g, ' ')         // collapse whitespace
+    .replace(LEADING_ARTICLES, '')  // "The Thrill Is Gone" → "thrill is gone"
+    .replace(/[^a-z0-9\s]/g, '')   // strip punctuation and diacritics
+    .replace(/\s+/g, ' ')          // collapse whitespace
     .trim();
+
+  if (!key) {
+    throw new Error(`Cannot normalize song title to a valid key: "${title}"`);
+  }
+
+  return key;
 }
 
 // "Valerie" → "valerie"
 // "Don't Stop Believin'" → "dont stop believin"
+// "The Thrill Is Gone" → "thrill is gone"
 // "Sweet Child O' Mine" → "sweet child o mine"
 ```
 
-This is the same `normalize()` function already used for Drive batch resolution (proven, battle-tested). Reuse it.
+**Finding #5 fixes:**
+- Strips leading articles (consistent with existing Drive `normalize()` in `lib/drive.ts:69`)
+- Throws on empty result (prevents collapsing multiple songs into one bucket)
+- Single implementation shared server + client (no drift)
+- Diacritics: stripped by the `[^a-z0-9\s]` regex. Songs with non-Latin titles ("Despacito" → "despacito") work fine. Purely-emoji or purely-punctuation titles rejected (edge case, acceptable).
+
+The upload route and slug resolution both import from `lib/normalize.ts` — one source of truth.
 
 #### Storage Path (Changed)
 
@@ -96,7 +114,7 @@ This is the same `normalize()` function already used for Drive batch resolution 
 Bucket: charts (public read, write via API route only)
 
 Old path: {show_id}/{song_id}/{role}.{ext}
-New path: {owner_id}/{song_key}/{role}.{ext}
+New path: {owner_id}/{song_key}/{canonical_role}.{ext}
 
 Example:
   abc123-user-id/valerie/guitar.pdf
@@ -105,6 +123,41 @@ Example:
 ```
 
 Owner-scoped paths. No show ID in the path — charts are show-independent.
+
+**Role canonicalization (Finding #4):** Roles are lowercased and restricted to an allowlist to prevent path collisions and semantic duplicates:
+
+```typescript
+const ALLOWED_ROLES = ['guitar', 'lyrics', 'keys', 'bass', 'horns', 'drums', 'other'] as const;
+
+function canonicalizeRole(input: string): string {
+  const lower = input.toLowerCase().trim();
+  if (ALLOWED_ROLES.includes(lower as any)) return lower;
+  return 'other';  // unknown roles map to "other"
+}
+```
+
+Users see the original role label in the UI (stored in `role` column), but the storage path uses the canonical form. If we need more roles later, we extend the allowlist — not a schema change.
+
+**Orphan prevention on re-upload (Finding #4):** When upserting a chart with a different file extension than the existing one, the upload route deletes the old Storage blob first:
+
+```typescript
+// Before upload: check if existing chart has a different storage_path
+const { data: existing } = await supabase
+  .from('chart_library')
+  .select('storage_path')
+  .eq('owner_id', user.id)
+  .eq('song_key', songKey)
+  .eq('role', role)
+  .single();
+
+if (existing && existing.storage_path !== newStoragePath) {
+  await admin.storage.from('charts').remove([existing.storage_path]);
+}
+
+// Then upload new blob + upsert DB row
+```
+
+No orphaned blobs — old extension files are cleaned up before the new upload lands.
 
 #### RLS Policies
 
@@ -210,9 +263,11 @@ Charts live directly on the setlist song row in the Setup tab — no separate "C
 ```
 
 Each song row shows:
-- Chart pills (role labels) for existing charts — click to view inline
-- `[+ Chart]` button — file picker → auto-detect role from filename → upload → pill appears
-- `[x]` on each pill to delete
+- Chart pills (role labels) for existing charts — click to view inline (all users)
+- `[+ Chart]` button — **owner only** — file picker → auto-detect role from filename → upload → pill appears
+- `[x]` on each pill — **owner only** — delete chart from library
+
+**Collaborator visibility (Finding #2):** Editors and viewers see chart pills (read-only) but NOT the upload/delete controls. The chart library is owner-managed. Collaborators benefit from the owner's charts but don't modify the library. The `[+ Chart]` button and `[x]` delete buttons are conditionally rendered based on `isOwner`. This is enforced in both UI (hide controls) and backend (RLS: only owner can insert/update/delete).
 
 **What this replaces:**
 - The standalone `ChartUploadSection` component (separate list of songs)
@@ -250,28 +305,34 @@ This is a nice-to-have for repertoire management. The inline setlist UI is the p
 
 ## Migration from Current Schema
 
-### What Exists Today
+### Migration Strategy (Finding #3 — Rollout-Safe)
 
-The `charts` table from the initial migration has no data yet (Graham hasn't uploaded any charts through Supabase — they were all on Drive). So the migration is:
+The `charts` table is currently empty (no uploads through Supabase yet). The migration guards against accidental data loss:
 
-1. Drop the `charts` table (empty, no data loss)
-2. Create `chart_library` table
-3. Update RLS policies
-4. Update the upload/delete API routes
-5. Update slug resolution to query `chart_library`
-6. Update the `ChartUploadSection` component to use normalized song keys
-
-### If Charts Did Exist
-
-If there were existing rows in `charts`:
 ```sql
-insert into chart_library (owner_id, song_key, song_title, role, file_name, storage_path, mime_type, file_size)
-select s.owner_id, normalize(config->'setlist'->...), ..., c.role, c.file_name, c.storage_path, c.mime_type, c.file_size
-from charts c
-join shows s on s.id = c.show_id;
+-- Guard: abort if charts table has data (shouldn't happen, but belt + suspenders)
+do $$
+begin
+  if (select count(*) from charts) > 0 then
+    raise exception 'charts table is not empty — use backfill migration instead of drop';
+  end if;
+end $$;
+
+-- Safe to drop (table confirmed empty)
+drop table charts;
+
+-- Create chart_library (schema from above)
+-- ... (full CREATE TABLE + RLS + indexes)
 ```
 
-Not needed now (table is empty), but documented for completeness.
+**Steps:**
+1. Run guarded migration SQL (fails safely if table has data)
+2. Update API routes (upload, delete, slug resolution)
+3. Update UI component (inline on setlist row, owner-only controls)
+4. Deploy
+
+**If charts table ever has data (future migrations):**
+The safe pattern is: create `chart_library` alongside `charts`, dual-write during transition, backfill existing rows with verified normalization, validate, then drop `charts`. Not needed now but documented for when we're past dev phase.
 
 ---
 
@@ -334,22 +395,33 @@ const { data: charts } = await admin
   .eq('owner_id', show.owner_id)
   .in('song_key', songKeys);
 
-// Group by song_key, build public URLs
-const chartsBySong = new Map();
+// Group by song_key into a plain object (Finding #1: Map won't JSON.stringify)
+const chartsBySong: Record<string, Array<{...}>> = {};
 for (const c of charts || []) {
-  const list = chartsBySong.get(c.song_key) || [];
-  list.push({
-    ...c,
+  const key = c.song_key;
+  if (!chartsBySong[key]) chartsBySong[key] = [];
+  chartsBySong[key].push({
+    id: c.id,
+    song_key: key,
+    role: c.role,
+    file_name: c.file_name,
+    mime_type: c.mime_type,
+    file_size: c.file_size,
+    updated_at: c.updated_at,
     url: `${SUPABASE_URL}/storage/v1/object/public/charts/${c.storage_path}`,
   });
-  chartsBySong.set(c.song_key, list);
 }
 
-// Return charts grouped by song_key for client-side matching
+// Return as plain object — serializes correctly to JSON
 return Response.json({ config: show.config, charts: chartsBySong, slug });
 ```
 
-Client matches charts to setlist by computing `normalizeSongKey(song.title)` for each song and looking up in the returned map.
+Client matches charts to setlist by computing `normalizeSongKey(song.title)` for each song and indexing into the `charts` object:
+
+```typescript
+const songKey = normalizeSongKey(song.title);
+const songCharts = data.charts[songKey] || [];
+```
 
 ---
 
@@ -384,3 +456,15 @@ Client matches charts to setlist by computing `normalizeSongKey(song.title)` for
 7. Update `lib/show-file.ts` — song IDs still in v2 format for setlist ordering, but chart linkage is now by title (IDs no longer used for chart FK)
 
 All in one PR. The old `charts` table is empty, so no data migration needed.
+
+---
+
+## Adversarial Cross-Check (Codex Review — 1 round, 5 findings)
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| 1 | **CRITICAL** | Slug response returns a JS `Map` which won't serialize to JSON — chart data dropped on the wire | Replaced with plain `Record<string, Array<...>>` object. Serializes correctly. |
+| 2 | **HIGH** | Upload/delete UI shown to all users but RLS restricts writes to owner only — confusing UX | `[+ Chart]` and `[x]` buttons conditionally rendered for `isOwner` only. Collaborators see read-only pills. Enforced in both UI and backend. |
+| 3 | **HIGH** | Migration drops `charts` table without guarding against non-empty state | Added `DO $$ ... IF count > 0 THEN RAISE EXCEPTION` guard. Documented dual-write pattern for future migrations with data. |
+| 4 | **MEDIUM** | Re-upload with different file extension orphans old Storage blob; free-text role creates path collisions | Upload route deletes old blob before uploading new one. Roles canonicalized via allowlist (`guitar`, `lyrics`, `keys`, `bass`, `horns`, `drums`, `other`). |
+| 5 | **MEDIUM** | Normalizer differs from existing Drive logic (missing article stripping), can return empty key | Unified normalizer in `lib/normalize.ts`: strips leading articles, throws on empty result, shared between server and client. |
