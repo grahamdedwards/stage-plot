@@ -23,6 +23,7 @@ interface CachedDoc {
 }
 
 const docCache = new Map<string, CachedDoc>();
+const failedKeys = new Set<string>(); // negative cache for failed loads
 const MAX_CACHED_DOCS = 5;
 
 function cacheKey(chart: Chart): string {
@@ -51,6 +52,10 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
   if (!chart.fileId) return null;
 
   const key = cacheKey(chart);
+
+  // Skip known-failed loads (prevents retry churn on private files)
+  if (failedKeys.has(key)) return null;
+
   const cached = docCache.get(key);
   if (cached) {
     cached.lastAccess = Date.now();
@@ -81,7 +86,10 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
     }
   }
 
-  if (!blobUrl) return null;
+  if (!blobUrl) {
+    failedKeys.add(key);
+    return null;
+  }
 
   try {
     const pdfjs = await getPdfjs();
@@ -162,6 +170,7 @@ export function destroyAllDocs() {
     if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
   }
   docCache.clear();
+  failedKeys.clear();
 }
 
 export function prefetchChart(chart: Chart, accessToken?: string) {
