@@ -36,7 +36,26 @@ export default function DashboardPage() {
       setLoading(false);
     }
     loadShows();
-  }, []);
+
+    // Handle legacy ?config= import (from root page redirect)
+    const pending = localStorage.getItem('showrunr-pending-import');
+    if (pending) {
+      localStorage.removeItem('showrunr-pending-import');
+      try {
+        const config = JSON.parse(decodeURIComponent(atob(pending)));
+        const name = config.showInfo?.showName || config.showInfo?.bandName || 'Imported Show';
+        fetch('/api/shows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config, name, venue: config.showInfo?.venue }),
+        }).then((res) => {
+          if (res.ok) res.json().then(({ slug }) => router.push(`/${slug}`));
+        });
+      } catch {
+        // Invalid config — silently ignore
+      }
+    }
+  }, [router]);
 
   async function handleCreate() {
     setCreating(true);

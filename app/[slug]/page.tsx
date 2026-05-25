@@ -219,7 +219,7 @@ export default function Page() {
   const [isOwner, setIsOwner] = useState(false);
   const [isEditor, setIsEditor] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [_showCharts, setShowCharts] = useState<Array<{
+  const showChartsRef = useRef<Array<{
     id: string;
     song_id: string;
     role: string;
@@ -229,7 +229,7 @@ export default function Page() {
     updated_at: string;
   }>>([]);
 
-  const { context: _showContext, saveConfig } = useShow(showId, slug, isOwner, isEditor);
+  const { saveConfig } = useShow(showId, slug, isOwner, isEditor);
 
   // ── Load show from Supabase on mount ─────────────────────────────────
   useEffect(() => {
@@ -248,8 +248,30 @@ export default function Page() {
         if (!data?.config) return;
 
         const cfg = withStableIds(data.config);
+
+        // Apply Supabase charts to setlist songs (by song_id)
+        if (data.charts && data.charts.length > 0) {
+          const chartsBySong = new Map<string, Chart[]>();
+          for (const c of data.charts) {
+            const list = chartsBySong.get(c.song_id) || [];
+            list.push({
+              role: c.role,
+              url: c.url,
+              fileId: c.id,
+              mimeType: c.mime_type,
+              modifiedTime: c.updated_at,
+              label: c.file_name,
+            });
+            chartsBySong.set(c.song_id, list);
+          }
+          cfg.setlist = cfg.setlist.map((song) => {
+            const charts = song.id ? chartsBySong.get(song.id) : undefined;
+            return charts ? { ...song, charts } : song;
+          });
+          showChartsRef.current = data.charts;
+        }
+
         setConfig(cfg);
-        if (data.charts) setShowCharts(data.charts);
 
         // Check ownership/editor status
         const supabase = getSupabaseBrowser();
@@ -322,9 +344,16 @@ export default function Page() {
   }, [slug]);
 
   const band = configToBand(config);
+  const isReadOnly = !isOwner && !isEditor;
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      {/* ── Read-only banner ──────────────────────────────────────────── */}
+      {isReadOnly && showId && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
+          Viewing in read-only mode. Sign in to edit.
+        </div>
+      )}
       {/* ── Tab Bar ─────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-10 bg-white border-b shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center">
@@ -338,6 +367,7 @@ export default function Page() {
           >
             Show
           </button>
+          {!isReadOnly && (
           <button
             onClick={() => setTab('setup')}
             className={`flex-1 py-3 text-center font-bold text-sm uppercase tracking-wide transition-colors ${
@@ -348,6 +378,8 @@ export default function Page() {
           >
             Setup
           </button>
+          )}
+          {!isReadOnly && (
           <button
             onClick={() => setTab('ai')}
             className={`flex-1 py-3 text-center font-bold text-sm uppercase tracking-wide transition-colors ${
@@ -358,6 +390,7 @@ export default function Page() {
           >
             AI Designer
           </button>
+          )}
           {tab === 'show' && (
             <button
               onClick={() => setShowPrintModal(true)}
