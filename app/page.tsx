@@ -112,6 +112,8 @@ function configToBand(c: AppConfig): BandConfig {
 }
 
 const STORAGE_KEY = 'stageplot-config';
+const PUBLISH_TOKEN_KEY = 'stageplot-publish-token';
+const PUBLISH_SLUG_KEY = 'stageplot-publish-slug';
 const POSITIONS: StagePosition[] = ['USR', 'USC', 'USL', 'MSR', 'MSC', 'MSL', 'DSR', 'DSC', 'DSL'];
 
 // ─── Singer Colors (shared between tabs) ───────────────────────────────────
@@ -133,10 +135,6 @@ function getSingerColor(name: string, colorMap: Map<string, string>): string {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-function encodeConfig(c: AppConfig): string {
-  return btoa(encodeURIComponent(JSON.stringify(c)));
-}
-
 function decodeConfig(s: string): AppConfig | null {
   try {
     return JSON.parse(decodeURIComponent(atob(s)));
@@ -159,6 +157,8 @@ function withStableIds(config: AppConfig): AppConfig {
 function initConfig(): AppConfig {
   if (typeof window === 'undefined') return withStableIds(bandToConfig(fallbackBand));
   const params = new URLSearchParams(window.location.search);
+
+  // Legacy ?config= URL (base64 encoded) — still supported for backwards compat
   const urlConfig = params.get('config');
   if (urlConfig) {
     const decoded = decodeConfig(urlConfig);
@@ -169,6 +169,9 @@ function initConfig(): AppConfig {
       return cfg;
     }
   }
+
+  // ?show=slug handled async after mount (see useEffect in Page)
+  // Fall through to localStorage for initial render
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) {
     try { return withStableIds(JSON.parse(stored)); } catch { /* fall through */ }
@@ -246,15 +249,55 @@ export default function Page() {
     setConfig((prev) => fn(prev));
   }, []);
 
-  const handleCopyLink = useCallback(() => {
-    if (!config) return;
-    const encoded = encodeConfig(config);
-    const url = `${window.location.origin}${window.location.pathname}?config=${encoded}`;
-    navigator.clipboard.writeText(url).then(() => {
+  const [publishSlug, setPublishSlug] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(PUBLISH_SLUG_KEY) || '';
+  });
+  const [publishing, setPublishing] = useState(false);
+
+  // Load show from ?show=slug on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get('show');
+    if (!slug) return;
+    fetch(`/api/show?slug=${encodeURIComponent(slug)}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.config) {
+          const cfg = withStableIds(data.config);
+          setConfig(cfg);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handlePublish = useCallback(async () => {
+    if (!config || publishing) return;
+    setPublishing(true);
+    try {
+      const token = localStorage.getItem(PUBLISH_TOKEN_KEY) || undefined;
+      const slug = localStorage.getItem(PUBLISH_SLUG_KEY) || undefined;
+      const res = await fetch('/api/show', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config, token, slug }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      localStorage.setItem(PUBLISH_TOKEN_KEY, data.token);
+      localStorage.setItem(PUBLISH_SLUG_KEY, data.slug);
+      setPublishSlug(data.slug);
+
+      const url = `${window.location.origin}?show=${data.slug}`;
+      await navigator.clipboard.writeText(url);
       setCopyFeedback(true);
       setTimeout(() => setCopyFeedback(false), 2000);
-    });
-  }, [config]);
+    } finally {
+      setPublishing(false);
+    }
+  }, [config, publishing]);
 
   const band = configToBand(config);
 
@@ -305,9 +348,10 @@ export default function Page() {
             </button>
           )}
           <button
-            onClick={handleCopyLink}
-            className="p-2 mr-1 text-gray-500 hover:text-black transition-colors"
-            title={copyFeedback ? 'Copied!' : 'Copy shareable link'}
+            onClick={handlePublish}
+            disabled={publishing}
+            className="p-2 mr-1 text-gray-500 hover:text-black transition-colors disabled:opacity-30"
+            title={copyFeedback ? 'Published & copied!' : publishSlug ? `Publish & copy link (${publishSlug})` : 'Publish & copy shareable link'}
           >
             {copyFeedback ? (
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -315,7 +359,7 @@ export default function Page() {
               </svg>
             ) : (
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
             )}
           </button>
