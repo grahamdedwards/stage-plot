@@ -133,8 +133,9 @@ export const TOOLS = [
             properties: {
               position: { type: 'number' as const, description: 'Song order (1-based)' },
               title: { type: 'string' as const, description: 'Song title' },
+              key: { type: 'string' as const, description: 'Musical key (e.g., "Eb", "Am", "F#m")' },
               lead: { type: 'string' as const, description: 'Lead singer(s) or "Instrumental"' },
-              notes: { type: 'string' as const, description: 'Key, artist, arrangement notes' },
+              notes: { type: 'string' as const, description: 'Arrangement notes, special instructions' },
               sceneNote: { type: 'string' as const, description: 'Engineer cue (e.g., "save scene after")' },
             },
             required: ['position', 'title', 'lead'],

@@ -62,10 +62,10 @@ body {
     page-break-after: avoid;
   }
 
-  /* Page breaks between major sections */
+  /* Allow sections to break across pages (cue sheet can be long) */
   section {
-    page-break-inside: avoid;
-    break-inside: avoid;
+    page-break-inside: auto;
+    break-inside: auto;
   }
 
   /* Keep tables together when possible */
@@ -158,10 +158,10 @@ body {
     flex: 1;
   }
 
-  .cue-sheet-notes {
-    font-size: 11pt;
-    color: #666;
-    font-style: italic;
+  .cue-sheet-key {
+    font-size: 13pt;
+    font-weight: bold;
+    color: #444;
     flex-shrink: 0;
   }
 
