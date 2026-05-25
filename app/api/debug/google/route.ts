@@ -5,6 +5,22 @@ function mask(val: string | null | undefined): { set: boolean; length?: number; 
   return { set: true, length: val.length, preview: `${val.slice(0, 6)}...${val.slice(-4)}` };
 }
 
+// DELETE /api/debug/google — clear stale Google credentials from Redis
+export async function DELETE() {
+  const url = process.env.REDIS_URL;
+  if (!url) return Response.json({ error: 'No Redis' }, { status: 500 });
+
+  try {
+    const client = createClient({ url });
+    await client.connect();
+    const deleted = await client.del(['admin:google_client_id', 'admin:google_client_secret']);
+    await client.disconnect();
+    return Response.json({ cleared: deleted, message: 'Stale Google credentials removed from Redis. Env vars will now take effect.' });
+  } catch (e) {
+    return Response.json({ error: String(e) }, { status: 500 });
+  }
+}
+
 export async function GET() {
   // Check env vars directly
   const envId = process.env.GOOGLE_CLIENT_ID;
