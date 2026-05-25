@@ -119,4 +119,63 @@ body {
   .bg-gray-900 {
     background: #333 !important;
   }
+
+  /* ─── Cue Sheet (compact print setlist) ───────────────────────────────── */
+  .cue-sheet {
+    page-break-before: avoid;
+  }
+
+  .cue-sheet-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24pt;
+  }
+
+  .cue-sheet-col {
+    break-inside: avoid;
+  }
+
+  .cue-sheet-item {
+    display: flex;
+    align-items: baseline;
+    gap: 4pt;
+    padding: 3pt 0;
+    border-bottom: 0.5pt solid #e0e0e0;
+  }
+
+  .cue-sheet-num {
+    font-size: 14pt;
+    font-weight: bold;
+    color: #999;
+    min-width: 24pt;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .cue-sheet-title {
+    font-size: 16pt;
+    font-weight: bold;
+    flex: 1;
+  }
+
+  .cue-sheet-lead {
+    font-size: 12pt;
+    color: #666;
+    flex-shrink: 0;
+  }
+
+  /* Compact header for print */
+  header {
+    padding-bottom: 8pt !important;
+    margin-bottom: 8pt !important;
+  }
+
+  header h1 {
+    font-size: 18pt !important;
+  }
+
+  header p {
+    font-size: 10pt !important;
+    margin-top: 2pt !important;
+  }
 }

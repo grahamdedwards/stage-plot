@@ -744,7 +744,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                 </button>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4 print:hidden">
               {legend.map(([name, color]) => (
                 <span key={name} className={`px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{name}</span>
               ))}
@@ -757,7 +757,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
             {reorderMode ? (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={songIds} strategy={verticalListSortingStrategy}>
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-gray-50 border-b">
                         <tr>
@@ -790,7 +790,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                 </SortableContext>
               </DndContext>
             ) : (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
@@ -806,9 +806,8 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                       const singers = song.lead.split('+').map((n) => n.trim());
                       const songCharts = song.charts ?? [];
                       const hasDupes = songCharts.some((c) => (c.dupeCount ?? 0) > 1);
-                      const hasRoleChart = effectiveRoleFilter === 'all' || songCharts.some((c) => c.role === effectiveRoleFilter);
                       return (
-                        <tr key={song.id ?? song.position} className={`hover:bg-gray-50 transition-opacity ${hasRoleChart ? '' : 'opacity-30'}`}>
+                        <tr key={song.id ?? song.position} className="hover:bg-gray-50">
                           <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
                           <td className="px-4 py-2 font-medium">
                             {song.title}
@@ -856,6 +855,40 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
               </table>
               </div>
             )}
+
+            {/* Print-only cue sheet: compact two-column layout */}
+            <div className="hidden print:block">
+              <div className="cue-sheet">
+                {(() => {
+                  const songs = band.setlist;
+                  const half = Math.ceil(songs.length / 2);
+                  const col1 = songs.slice(0, half);
+                  const col2 = songs.slice(half);
+                  return (
+                    <div className="cue-sheet-grid">
+                      <div className="cue-sheet-col">
+                        {col1.map((song) => (
+                          <div key={song.id ?? song.position} className="cue-sheet-item">
+                            <span className="cue-sheet-num">{song.position}.</span>
+                            <span className="cue-sheet-title">{song.title}</span>
+                            <span className="cue-sheet-lead">{song.lead}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="cue-sheet-col">
+                        {col2.map((song) => (
+                          <div key={song.id ?? song.position} className="cue-sheet-item">
+                            <span className="cue-sheet-num">{song.position}.</span>
+                            <span className="cue-sheet-title">{song.title}</span>
+                            <span className="cue-sheet-lead">{song.lead}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
 
             {/* Chart Navigator Overlay */}
             {navigatorSongIdx !== null && band.setlist[navigatorSongIdx] && (
