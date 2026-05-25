@@ -198,28 +198,41 @@ Charts are resolved at load time, not stored in the show config. This means:
 
 ## Upload UX (Revised)
 
-### Per-Song Upload (Same UX, Better Model)
+### Inline on Setlist Row (Replaces Separate Chart Section)
 
-The UI in Setup tab stays nearly identical:
+Charts live directly on the setlist song row in the Setup tab — no separate "Charts" section that redundantly lists the same songs. The scene note column is replaced by the chart area (scene notes were rarely used; charts are used constantly):
 
 ```
-  Valerie                          Rachel    E
-  [Charts: Guitar.pdf, Lyrics.pdf]  [+ Chart]
+  #  Title         Lead     Key   Charts
+  1  Valerie       Rachel   E     [Guitar] [Lyrics] [+ Chart]
+  2  Superstition  Graham   Ebm   [Guitar] [Horns]  [+ Chart]
+  3  Sweet Child   Matt     D     [+ Chart]
 ```
 
-Click "+ Chart" → file picker → role → upload.
+Each song row shows:
+- Chart pills (role labels) for existing charts — click to view inline
+- `[+ Chart]` button — file picker → auto-detect role from filename → upload → pill appears
+- `[x]` on each pill to delete
 
-**What changes:** The upload goes to `chart_library` (keyed on `owner_id + normalize(song.title) + role`) instead of the old `charts` table. The UI doesn't change — the user doesn't know or care that it's a library, they just see charts appear on songs.
+**What this replaces:**
+- The standalone `ChartUploadSection` component (separate list of songs)
+- The scene note column (moved to the song's expandable notes field if needed)
+
+**Why this is better:**
+- One row = one song = everything about that song
+- No context-switching between "setlist setup" and "chart management"
+- Immediately obvious which songs have charts and which don't
+- The chart pills double as the navigation entry point (click pill → open chart viewer)
 
 ### Bulk Upload
 
-"Upload Charts" in Setup tab header → drop zone → filename matching → confirm.
+"Upload Charts" button in the setlist section header → drop zone for multiple files → filename matching against setlist songs → confirm role assignments → upload all.
 
-Same UX as before, but inserts into `chart_library` with the owner's ID and normalized song titles.
+Same UX concept as before, but results appear inline on the song rows immediately after upload.
 
-### Library View (New, Optional)
+### Library View (New, Optional — Future)
 
-A "My Charts" section in the dashboard or a dedicated `/charts` page:
+A "My Charts" page in the dashboard showing the full library:
 
 ```
 My Chart Library (47 songs, 112 charts)
@@ -231,7 +244,7 @@ My Chart Library (47 songs, 112 charts)
   ...
 ```
 
-This is a nice-to-have, not a blocker. The per-song upload in Setup is sufficient for managing charts. The library view just provides visibility into what's there across all shows.
+This is a nice-to-have for repertoire management. The inline setlist UI is the primary interaction surface. The library view provides cross-show visibility ("what charts do I have for songs not on tonight's setlist?").
 
 ---
 
