@@ -13,10 +13,7 @@ const EXPORT_MIME_TYPES: Record<string, string> = {
 // Authorization: Bearer <access_token>
 // Body: { fileId: string, mimeType?: string }
 export async function POST(request: NextRequest) {
-  const accessToken = request.headers.get('authorization')?.replace('Bearer ', '');
-  if (!accessToken) {
-    return Response.json({ error: 'Missing access token' }, { status: 401 });
-  }
+  const accessToken = request.headers.get('authorization')?.replace('Bearer ', '') || null;
 
   let body: { fileId: string; mimeType?: string };
   try {
@@ -41,9 +38,9 @@ export async function POST(request: NextRequest) {
       url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}?alt=media&supportsAllDrives=true`;
     }
 
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const headers: Record<string, string> = {};
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+    const res = await fetch(url, { headers });
 
     // Export too large (>10MB Google limit) — Google returns 403 for oversized exports
     if (res.status === 413 || (res.status === 403 && exportMime)) {

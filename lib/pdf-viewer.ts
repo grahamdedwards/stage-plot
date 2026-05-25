@@ -61,15 +61,14 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
   let blobUrl = await getCachedChartUrl(chart);
   let ownsBlobUrl = false;
 
-  // Fall back to network fetch
-  if (!blobUrl && accessToken) {
+  // Fall back to network fetch (works with or without auth for public files)
+  if (!blobUrl) {
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
       const res = await fetch('/api/drive/download', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ fileId: chart.fileId, mimeType: chart.mimeType }),
       });
       if (res.ok) {
