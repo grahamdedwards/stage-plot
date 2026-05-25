@@ -2463,7 +2463,7 @@ function ChartUploadSection({ showId, songs, updateConfig }: {
         ...prev,
         setlist: prev.setlist.map((s) =>
           s.id === target.id
-            ? { ...s, charts: [...(s.charts || []), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
+            ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
             : s
         ),
       }));
