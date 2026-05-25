@@ -811,6 +811,11 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                           <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
                           <td className="px-4 py-2 font-medium">
                             {song.title}
+                            {song.key && (
+                              <span className="ml-2 text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-semibold border border-gray-200">
+                                {song.key}
+                              </span>
+                            )}
                             {song.sceneNote && (
                               <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-semibold">
                                 {song.sceneNote}
@@ -871,7 +876,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                           <div key={song.id ?? song.position} className="cue-sheet-item">
                             <span className="cue-sheet-num">{song.position}.</span>
                             <span className="cue-sheet-title">{song.title}</span>
-                            {song.notes && <span className="cue-sheet-notes">{song.notes}</span>}
+                            {song.key && <span className="cue-sheet-key">{song.key}</span>}
                           </div>
                         ))}
                       </div>
@@ -880,7 +885,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                           <div key={song.id ?? song.position} className="cue-sheet-item">
                             <span className="cue-sheet-num">{song.position}.</span>
                             <span className="cue-sheet-title">{song.title}</span>
-                            {song.notes && <span className="cue-sheet-notes">{song.notes}</span>}
+                            {song.key && <span className="cue-sheet-key">{song.key}</span>}
                           </div>
                         ))}
                       </div>
@@ -1236,6 +1241,11 @@ function ShowSortableRow({
       <td className="px-4 py-2 font-mono text-gray-400">{song.position}</td>
       <td className="px-4 py-2 font-medium">
         {song.title}
+        {song.key && (
+          <span className="ml-2 text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-semibold border border-gray-200">
+            {song.key}
+          </span>
+        )}
         {song.sceneNote && (
           <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-semibold">
             {song.sceneNote}
@@ -1320,6 +1330,7 @@ function SetupSetlistTable({
                   <th className="w-8"></th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-10">#</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[160px]">Title</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-16">Key</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Lead</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
@@ -1392,6 +1403,9 @@ function SetupSortableRow({
       </td>
       <td className="px-2 py-1">
         <input className={inputCls} value={song.title} onChange={(e) => onUpdate(idx, 'title', e.target.value)} />
+      </td>
+      <td className="px-2 py-1">
+        <input className={`${inputCls} w-16`} placeholder="Eb" value={song.key ?? ''} onChange={(e) => onUpdate(idx, 'key', e.target.value)} />
       </td>
       <td className="px-2 py-1">
         <input className={inputCls} value={song.lead} onChange={(e) => onUpdate(idx, 'lead', e.target.value)} />

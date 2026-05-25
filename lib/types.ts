@@ -50,6 +50,7 @@ export interface SetlistSong {
   id?: string;              // stable identity for DnD + navigator; guaranteed at runtime
   position: number;
   title: string;
+  key?: string;           // musical key — e.g. "Eb", "Am", "F#m"
   lead: string;           // singer name(s) — e.g. "Rachel" or "Graham + Rachel"
   notes?: string;         // e.g. "key change", "guest", "spoken word"
   sceneNote?: string;     // engineer cue — e.g. "save scene after"
