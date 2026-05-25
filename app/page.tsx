@@ -197,7 +197,12 @@ function initGoogleToken(): GoogleToken | null {
 }
 
 export default function Page() {
-  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>('show');
+  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>(() => {
+    if (typeof window === 'undefined') return 'show';
+    const hash = window.location.hash;
+    if (hash.startsWith('#google_auth=') || hash === '#error=google_not_configured') return 'setup';
+    return 'show';
+  });
   const [config, setConfig] = useState<AppConfig>(initConfig);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
