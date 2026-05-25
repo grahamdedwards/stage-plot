@@ -67,6 +67,9 @@ export async function POST(request: NextRequest) {
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
+    // Validate date format — Postgres date column rejects invalid strings
+    const validDate = show_date && /^\d{4}-\d{2}-\d{2}$/.test(show_date) ? show_date : null;
+
     const { data, error } = await supabase
       .from('shows')
       .insert({
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
         config,
         name,
         venue: venue || null,
-        show_date: show_date || null,
+        show_date: validDate,
       })
       .select('id, slug, updated_at')
       .single();
@@ -90,7 +93,7 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    return Response.json({ error: error?.message || 'Failed to create show' }, { status: 500 });
+    return Response.json({ error: error?.message || 'Failed to create show', code: error?.code, details: error?.details }, { status: 500 });
   }
 
   return Response.json({ error: 'Could not generate unique slug' }, { status: 409 });

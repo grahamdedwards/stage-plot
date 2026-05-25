@@ -12,9 +12,14 @@ export async function getSupabaseServer() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
+            // setAll can fail in Route Handlers where response is already streaming.
+            // Session refresh is handled by middleware instead.
+          }
         },
       },
     },
