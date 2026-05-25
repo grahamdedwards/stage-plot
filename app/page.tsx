@@ -165,6 +165,7 @@ function initConfig(): AppConfig {
     if (decoded) {
       const cfg = withStableIds(decoded);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+      window.history.replaceState(null, '', window.location.pathname);
       return cfg;
     }
   }
