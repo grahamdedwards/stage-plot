@@ -938,16 +938,29 @@ function ChartNavigator({
   const chartModifiedTime = activeChart?.modifiedTime;
 
   useEffect(() => {
-    if (!chartFileId) {
-      docRef.current = null;
-      return;
-    }
     let cancelled = false;
+    if (!chartFileId) {
+      // Defer state reset to microtask to satisfy lint (no sync setState in effect)
+      Promise.resolve().then(() => {
+        if (cancelled) return;
+        docRef.current = null;
+        setNumPages(0);
+        setPageNum(1);
+        setLoading(false);
+      });
+      return () => { cancelled = true; };
+    }
     const load = async () => {
       setLoading(true);
       try {
         const doc = await loadPdfDoc(activeChart!, accessToken);
-        if (cancelled || !doc) return;
+        if (cancelled) return;
+        if (!doc) {
+          docRef.current = null;
+          setNumPages(0);
+          setPageNum(1);
+          return;
+        }
         docRef.current = doc;
         setNumPages(doc.numPages);
         setPageNum(1);
@@ -1110,6 +1123,18 @@ function ChartNavigator({
             {roleFilter !== 'all'
               ? `No ${roleFilter} chart for this song`
               : 'No charts for this song'}
+          </div>
+        ) : activeChart && !activeChart.fileId ? (
+          <div className="text-center space-y-3">
+            <p className="text-sm text-gray-500">This chart can only be viewed externally</p>
+            <a
+              href={activeChart.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+            >
+              Open {activeChart.role} Chart &rarr;
+            </a>
           </div>
         ) : (
           <canvas ref={canvasRef} className="max-w-full max-h-full" />
