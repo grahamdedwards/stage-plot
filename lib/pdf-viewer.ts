@@ -66,16 +66,25 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
   let blobUrl = await getCachedChartUrl(chart);
   let ownsBlobUrl = false;
 
-  // Fall back to network fetch (works with or without auth for public files)
+  // Fall back to network fetch
   if (!blobUrl) {
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch('/api/drive/download', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ fileId: chart.fileId, mimeType: chart.mimeType }),
-      });
+      let res: Response;
+
+      // Supabase Storage charts have a direct public URL — fetch directly
+      if (chart.url && chart.url.includes('/storage/v1/object/public/')) {
+        res = await fetch(chart.url);
+      } else {
+        // Legacy Drive charts — go through the proxy
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+        res = await fetch('/api/drive/download', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ fileId: chart.fileId, mimeType: chart.mimeType }),
+        });
+      }
+
       if (res.ok) {
         const blob = await res.blob();
         blobUrl = URL.createObjectURL(blob);

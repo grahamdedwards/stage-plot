@@ -435,7 +435,7 @@ export default function Page() {
         <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       )}
       {tab === 'setup' && (
-        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} />
+        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} />
       )}
       {tab === 'ai' && (
         <div className="p-4 md:p-8">
@@ -2416,18 +2416,130 @@ const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:
 const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors';
 const btnRemove = 'px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors';
 
+// ─── Supabase Chart Upload Section ───────────────────────────────────────────
+function ChartUploadSection({ showId, songs, updateConfig }: {
+  showId: string;
+  songs: SetlistSong[];
+  updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
+}) {
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const targetSongRef = useRef<{ id: string; title: string } | null>(null);
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const target = targetSongRef.current;
+    if (!file || !target) return;
+
+    const nameLower = file.name.toLowerCase();
+    const roles = ['Guitar', 'Lyrics', 'Keys', 'Bass', 'Horns', 'Drums'];
+    let detectedRole = 'Other';
+    for (const r of roles) {
+      if (nameLower.includes(r.toLowerCase())) { detectedRole = r; break; }
+    }
+
+    const role = prompt(`Chart role for "${target.title}":`, detectedRole);
+    if (!role) { if (fileRef.current) fileRef.current.value = ''; return; }
+
+    setUploading(target.id);
+    setError('');
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('show_id', showId);
+    formData.append('song_id', target.id);
+    formData.append('role', role);
+
+    try {
+      const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json();
+        setError(err.error || 'Upload failed');
+        return;
+      }
+      const chart = await res.json();
+      updateConfig((prev) => ({
+        ...prev,
+        setlist: prev.setlist.map((s) =>
+          s.id === target.id
+            ? { ...s, charts: [...(s.charts || []), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
+            : s
+        ),
+      }));
+    } catch {
+      setError('Network error');
+    } finally {
+      setUploading(null);
+      targetSongRef.current = null;
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function handleDelete(songId: string, chartId: string, role: string) {
+    if (!confirm(`Delete ${role} chart?`)) return;
+    const res = await fetch('/api/charts/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chart_id: chartId }),
+    });
+    if (res.ok) {
+      updateConfig((prev) => ({
+        ...prev,
+        setlist: prev.setlist.map((s) =>
+          s.id === songId
+            ? { ...s, charts: (s.charts || []).filter((c) => c.fileId !== chartId) }
+            : s
+        ),
+      }));
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-bold mb-4">Charts</h2>
+      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      <div className="space-y-1">
+        {songs.map((song) => (
+          <div key={song.id} className="flex items-center gap-2 py-1.5 border-b border-gray-100">
+            <span className="text-sm font-medium w-36 truncate">{song.title}</span>
+            <div className="flex-1 flex flex-wrap gap-1">
+              {(song.charts || []).map((c) => (
+                <span key={c.role} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-700">
+                  {c.role}
+                  <button onClick={() => handleDelete(song.id!, c.fileId!, c.role)} className="text-blue-400 hover:text-red-500" title="Remove">x</button>
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={() => { targetSongRef.current = { id: song.id!, title: song.title }; fileRef.current?.click(); }}
+              disabled={uploading === song.id}
+              className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 disabled:opacity-50"
+            >
+              {uploading === song.id ? '...' : '+ Chart'}
+            </button>
+          </div>
+        ))}
+      </div>
+      <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleFileSelect} className="hidden" />
+    </div>
+  );
+}
+
 function SetupTab({
   config,
   updateConfig,
   googleToken,
   googleError,
   onDisconnectGoogle,
+  showId,
 }: {
   config: AppConfig;
   updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
   googleToken: GoogleToken | null;
   googleError?: string;
   onDisconnectGoogle: () => void;
+  showId: string | null;
 }) {
   const [sheetUrl, setSheetUrl] = useState('');
   const [sheetLoading, setSheetLoading] = useState(false);
@@ -2988,7 +3100,19 @@ function SetupTab({
           />
         </section>
 
-        {/* ── 6. Google Drive Charts ────────────────────────────────────── */}
+        {/* ── 6. Charts (Supabase upload) ────────────────────────────────── */}
+        {showId && config.setlist.length > 0 && (
+          <section className={sectionCls}>
+            <ChartUploadSection
+              showId={showId}
+              songs={config.setlist}
+              updateConfig={updateConfig}
+            />
+          </section>
+        )}
+
+        {/* ── 7. Google Drive Charts (legacy) ─────────────────────────────── */}
+        {!showId && (
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Charts / Lead Sheets</h2>
 
@@ -3081,8 +3205,9 @@ function SetupTab({
             </div>
           )}
         </section>
+        )}
 
-        {/* ── 7. Offline Access ──────────────────────────────────────────── */}
+        {/* ── 8. Offline Access ──────────────────────────────────────────── */}
         {canResolveCharts && (
           <OfflineSection
             charts={config.setlist.flatMap((s) => s.charts ?? [])}

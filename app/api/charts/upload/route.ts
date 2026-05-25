@@ -24,16 +24,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Verify user is owner or editor of this show (RLS would catch this on insert,
-  // but we check here to avoid uploading to Storage only to fail on DB insert)
+  // Verify user is owner or editor BEFORE uploading to Storage.
+  // Check ownership first, then collaborator role.
   const { data: show } = await supabase
     .from('shows')
-    .select('id')
+    .select('id, owner_id')
     .eq('id', showId)
     .single();
 
   if (!show) {
     return Response.json({ error: 'Show not found or access denied' }, { status: 403 });
+  }
+
+  if (show.owner_id !== user.id) {
+    // Not owner — check if editor collaborator
+    const { data: collab } = await supabase
+      .from('show_collaborators')
+      .select('role')
+      .eq('show_id', showId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (!collab || collab.role !== 'editor') {
+      return Response.json({ error: 'Permission denied — only owners and editors can upload charts' }, { status: 403 });
+    }
   }
 
   // Construct storage path (server-side only — prevents path traversal)
