@@ -919,7 +919,7 @@ function ChartNavigator({
   const docRef = useRef<import('pdfjs-dist').PDFDocumentProxy | null>(null);
   const prevSongIdxRef = useRef(currentIdx);
 
-  // Reset chart and page when song changes
+  // Reset chart and page when song or available charts change
   useEffect(() => {
     if (currentIdx !== prevSongIdxRef.current) {
       prevSongIdxRef.current = currentIdx;
@@ -928,8 +928,12 @@ function ChartNavigator({
     }
   }, [currentIdx]);
 
+  // Clamp activeChartIdx when filtered charts shrink (e.g., role filter change)
+  const clampedChartIdx = charts.length > 0 ? Math.min(activeChartIdx, charts.length - 1) : 0;
+  if (clampedChartIdx !== activeChartIdx) setActiveChartIdx(clampedChartIdx);
+
   // Load and render PDF
-  const activeChart = charts[activeChartIdx] ?? null;
+  const activeChart = charts[clampedChartIdx] ?? null;
   const chartFileId = activeChart?.fileId;
   const chartModifiedTime = activeChart?.modifiedTime;
 

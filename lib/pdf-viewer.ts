@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import type { Chart } from './types';
 import { getCachedChartUrl } from './chart-cache';
 
@@ -14,11 +14,11 @@ async function getPdfjs() {
 
 // ─── In-memory PDF document cache ─────────────────────────────────────────
 // Keyed by fileId:modifiedTime to match offline cache versioning.
-// Max 5 docs in memory — evicts furthest from current index.
+// Max 5 docs in memory — evicts least recently accessed.
 
 interface CachedDoc {
   doc: PDFDocumentProxy;
-  key: string;
+  blobUrl: string | null; // non-null if we created a blob URL (network path)
   lastAccess: number;
 }
 
@@ -29,9 +29,8 @@ function cacheKey(chart: Chart): string {
   return `${chart.fileId}:${chart.modifiedTime ?? ''}`;
 }
 
-function evictIfNeeded() {
-  if (docCache.size <= MAX_CACHED_DOCS) return;
-  // Evict least recently accessed
+function evictOldest() {
+  if (docCache.size < MAX_CACHED_DOCS) return;
   let oldest: string | null = null;
   let oldestTime = Infinity;
   for (const [key, entry] of docCache) {
@@ -41,8 +40,9 @@ function evictIfNeeded() {
     }
   }
   if (oldest) {
-    const entry = docCache.get(oldest);
-    entry?.doc.destroy();
+    const entry = docCache.get(oldest)!;
+    entry.doc.destroy();
+    if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
     docCache.delete(oldest);
   }
 }
@@ -59,6 +59,7 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
 
   // Try offline cache first
   let blobUrl = await getCachedChartUrl(chart);
+  let ownsBlobUrl = false;
 
   // Fall back to network fetch
   if (!blobUrl && accessToken) {
@@ -74,6 +75,7 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
       if (res.ok) {
         const blob = await res.blob();
         blobUrl = URL.createObjectURL(blob);
+        ownsBlobUrl = true;
       }
     } catch {
       return null;
@@ -87,14 +89,24 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
     const loadingTask = pdfjs.getDocument(blobUrl);
     const doc = await loadingTask.promise;
 
-    evictIfNeeded();
-    docCache.set(key, { doc, key, lastAccess: Date.now() });
+    evictOldest();
+    docCache.set(key, {
+      doc,
+      blobUrl: ownsBlobUrl ? blobUrl : null,
+      lastAccess: Date.now(),
+    });
 
     return doc;
   } catch {
+    if (ownsBlobUrl) URL.revokeObjectURL(blobUrl);
     return null;
   }
 }
+
+// ─── Render serialization ─────────────────────────────────────────────────
+// Only one render per canvas at a time. Cancel previous if a new one starts.
+
+let activeRenderTask: RenderTask | null = null;
 
 export async function renderPage(
   doc: PDFDocumentProxy,
@@ -103,10 +115,15 @@ export async function renderPage(
 ): Promise<void> {
   if (pageNum < 1 || pageNum > doc.numPages) return;
 
+  // Cancel any in-flight render on this canvas
+  if (activeRenderTask) {
+    activeRenderTask.cancel();
+    activeRenderTask = null;
+  }
+
   const page = await doc.getPage(pageNum);
   const dpr = window.devicePixelRatio || 1;
 
-  // Scale to fit canvas container width
   const container = canvas.parentElement;
   if (!container) return;
   const containerWidth = container.clientWidth;
@@ -124,20 +141,30 @@ export async function renderPage(
   canvas.style.width = `${scaledViewport.width / dpr}px`;
   canvas.style.height = `${scaledViewport.height / dpr}px`;
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  const task = page.render({ canvas, viewport: scaledViewport });
+  activeRenderTask = task;
 
-  await page.render({ canvas, viewport: scaledViewport }).promise;
+  try {
+    await task.promise;
+  } catch {
+    // Render was cancelled — expected during fast navigation
+  } finally {
+    if (activeRenderTask === task) activeRenderTask = null;
+  }
 }
 
 export function destroyAllDocs() {
+  if (activeRenderTask) {
+    activeRenderTask.cancel();
+    activeRenderTask = null;
+  }
   for (const entry of docCache.values()) {
     entry.doc.destroy();
+    if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
   }
   docCache.clear();
 }
 
 export function prefetchChart(chart: Chart, accessToken?: string) {
-  // Fire and forget — just load into cache
   loadPdfDoc(chart, accessToken).catch(() => {});
 }
