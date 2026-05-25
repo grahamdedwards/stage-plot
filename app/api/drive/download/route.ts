@@ -54,15 +54,22 @@ export async function POST(request: NextRequest) {
     const exportMime = body.mimeType ? EXPORT_MIME_TYPES[body.mimeType] : undefined;
 
     let url: string;
-    if (exportMime) {
-      url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}/export?mimeType=${encodeURIComponent(exportMime)}&supportsAllDrives=true`;
+    const fetchHeaders: Record<string, string> = {};
+
+    if (accessToken) {
+      // Authenticated: use Drive API
+      fetchHeaders['Authorization'] = `Bearer ${accessToken}`;
+      if (exportMime) {
+        url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}/export?mimeType=${encodeURIComponent(exportMime)}&supportsAllDrives=true`;
+      } else {
+        url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}?alt=media&supportsAllDrives=true`;
+      }
     } else {
-      url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}?alt=media&supportsAllDrives=true`;
+      // Unauthenticated: use public download URL (no API key needed for shared files)
+      url = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(body.fileId)}&confirm=t`;
     }
 
-    const headers: Record<string, string> = {};
-    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers: fetchHeaders, redirect: 'follow' });
 
     // Handle auth/permission failures BEFORE export-size check
     if (res.status === 401 || res.status === 403) {
