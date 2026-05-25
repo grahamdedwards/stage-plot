@@ -255,8 +255,9 @@ export default function Page() {
   });
   const [publishing, setPublishing] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [publishError, setPublishError] = useState('');
 
-  // Load show from ?show=slug on mount
+  // Load show from ?show=slug on mount (keep slug in URL for refresh/forwarding)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const slug = params.get('show');
@@ -282,7 +283,7 @@ export default function Page() {
             localStorage.removeItem(PUBLISH_SLUG_KEY);
             setPublishSlug('');
           }
-          window.history.replaceState(null, '', window.location.pathname);
+          // Keep ?show=slug in URL so refresh re-fetches latest + URL is forwardable
         }
       })
       .catch(() => {
@@ -293,6 +294,7 @@ export default function Page() {
   const handlePublish = useCallback(async () => {
     if (!config || publishing) return;
     setPublishing(true);
+    setPublishError('');
     try {
       const token = localStorage.getItem(PUBLISH_TOKEN_KEY) || undefined;
       const slug = localStorage.getItem(PUBLISH_SLUG_KEY) || undefined;
@@ -301,7 +303,11 @@ export default function Page() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config, token, slug }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Publish failed' }));
+        setPublishError(err.error || 'Publish failed');
+        return;
+      }
       const data = await res.json();
       localStorage.setItem(PUBLISH_TOKEN_KEY, data.token);
       localStorage.setItem(PUBLISH_SLUG_KEY, data.slug);
@@ -311,6 +317,8 @@ export default function Page() {
       await navigator.clipboard.writeText(url);
       setCopyFeedback(true);
       setTimeout(() => setCopyFeedback(false), 2000);
+    } catch {
+      setPublishError('Network error — could not publish');
     } finally {
       setPublishing(false);
     }
@@ -383,11 +391,11 @@ export default function Page() {
         </div>
       </div>
 
-      {/* ── Load Error ─────────────────────────────────────────────────── */}
-      {loadError && (
+      {/* ── Errors ────────────────────────────────────────────────────── */}
+      {(loadError || publishError) && (
         <div className="max-w-4xl mx-auto px-4 pt-4">
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
-            {loadError}
+            {loadError || publishError}
           </div>
         </div>
       )}
