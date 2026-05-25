@@ -158,9 +158,10 @@ body {
     flex: 1;
   }
 
-  .cue-sheet-lead {
-    font-size: 12pt;
+  .cue-sheet-notes {
+    font-size: 11pt;
     color: #666;
+    font-style: italic;
     flex-shrink: 0;
   }
 

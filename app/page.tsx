@@ -871,7 +871,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                           <div key={song.id ?? song.position} className="cue-sheet-item">
                             <span className="cue-sheet-num">{song.position}.</span>
                             <span className="cue-sheet-title">{song.title}</span>
-                            <span className="cue-sheet-lead">{song.lead}</span>
+                            {song.notes && <span className="cue-sheet-notes">{song.notes}</span>}
                           </div>
                         ))}
                       </div>
@@ -880,7 +880,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
                           <div key={song.id ?? song.position} className="cue-sheet-item">
                             <span className="cue-sheet-num">{song.position}.</span>
                             <span className="cue-sheet-title">{song.title}</span>
-                            <span className="cue-sheet-lead">{song.lead}</span>
+                            {song.notes && <span className="cue-sheet-notes">{song.notes}</span>}
                           </div>
                         ))}
                       </div>
