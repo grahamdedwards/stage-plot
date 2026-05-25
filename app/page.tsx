@@ -197,12 +197,7 @@ function initGoogleToken(): GoogleToken | null {
 }
 
 export default function Page() {
-  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>(() => {
-    if (typeof window === 'undefined') return 'show';
-    const hash = window.location.hash;
-    if (hash.startsWith('#google_auth=') || hash === '#error=google_not_configured') return 'setup';
-    return 'show';
-  });
+  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>('show');
   const [config, setConfig] = useState<AppConfig>(initConfig);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -217,14 +212,19 @@ export default function Page() {
   const [isOffline, setIsOffline] = useState(() =>
     typeof window !== 'undefined' ? !navigator.onLine : false
   );
-  const [googleError] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    if (window.location.hash === '#error=google_not_configured') {
+  const [googleError, setGoogleError] = useState('');
+
+  // After mount: detect Google auth redirect and switch to Setup tab
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash === '#error=google_not_configured') {
+      setTab('setup');
+      setGoogleError('Google Drive is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel environment variables, then redeploy.');
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      return 'Google Drive is not configured on this server. The site owner needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.';
+    } else if (hash.startsWith('#google_auth=')) {
+      setTab('setup');
     }
-    return '';
-  });
+  }, []);
 
   // ── Persist to localStorage on change ─────────────────────────────────
   useEffect(() => {
