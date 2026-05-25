@@ -254,6 +254,7 @@ export default function Page() {
     return localStorage.getItem(PUBLISH_SLUG_KEY) || '';
   });
   const [publishing, setPublishing] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   // Load show from ?show=slug on mount
   useEffect(() => {
@@ -261,16 +262,29 @@ export default function Page() {
     const slug = params.get('show');
     if (!slug) return;
     fetch(`/api/show?slug=${encodeURIComponent(slug)}`)
-      .then((res) => res.ok ? res.json() : null)
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Load failed' }));
+          setLoadError(err.error || `Show "${slug}" not found`);
+          return;
+        }
+        return res.json();
+      })
       .then((data) => {
         if (data?.config) {
           const cfg = withStableIds(data.config);
           setConfig(cfg);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+          // Clear publish ownership — this is someone else's show
+          localStorage.removeItem(PUBLISH_TOKEN_KEY);
+          localStorage.removeItem(PUBLISH_SLUG_KEY);
+          setPublishSlug('');
           window.history.replaceState(null, '', window.location.pathname);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setLoadError(`Could not load show "${slug}" — network error`);
+      });
   }, []);
 
   const handlePublish = useCallback(async () => {
@@ -365,6 +379,15 @@ export default function Page() {
           </button>
         </div>
       </div>
+
+      {/* ── Load Error ─────────────────────────────────────────────────── */}
+      {loadError && (
+        <div className="max-w-4xl mx-auto px-4 pt-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+            {loadError}
+          </div>
+        </div>
+      )}
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'show' && (

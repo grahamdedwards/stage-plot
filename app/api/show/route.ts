@@ -3,6 +3,7 @@ import { createClient } from 'redis';
 
 const MAX_BODY_SIZE = 500_000; // 500KB
 const SHOW_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
+const SLUG_RE = /^[a-z0-9-]+$/;
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'show';
@@ -19,7 +20,7 @@ async function getRedis() {
 // ─── GET /api/show?slug=xxx — load a published show ──────────────────────
 export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get('slug');
-  if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
+  if (!slug || !SLUG_RE.test(slug)) {
     return Response.json({ error: 'Invalid slug' }, { status: 400 });
   }
 
@@ -66,9 +67,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Missing config' }, { status: 400 });
   }
 
+  // Sanitize slug from client
   const showInfo = body.config.showInfo as { bandName?: string; showName?: string } | undefined;
   const name = showInfo?.showName || showInfo?.bandName || 'show';
-  let slug = body.slug || slugify(name);
+  const baseSlug = slugify(body.slug || name);
 
   let client;
   try {
@@ -77,27 +79,40 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Storage not available' }, { status: 503 });
     }
 
-    const existing = await client.get(`show:${slug}`);
-
-    if (existing) {
-      const parsed = JSON.parse(existing);
-      // If slug is taken by someone else (different token), generate a unique slug
-      if (body.token && parsed.token === body.token) {
-        // Owner updating — same slug, same token
-      } else if (!body.token || parsed.token !== body.token) {
-        // Slug taken — append random suffix
-        const suffix = Math.random().toString(36).slice(2, 6);
-        slug = `${slug}-${suffix}`;
-      }
-    }
-
     const token = body.token || crypto.randomUUID();
     const record = JSON.stringify({ config: body.config, token, updatedAt: new Date().toISOString() });
 
-    await client.set(`show:${slug}`, record, { EX: SHOW_TTL_SECONDS });
-    await client.disconnect();
+    // If caller has a token and slug, try to update their own show atomically
+    if (body.token && body.slug) {
+      const slug = slugify(body.slug);
+      const existing = await client.get(`show:${slug}`);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (parsed.token === body.token) {
+          // Owner update — atomic SET
+          await client.set(`show:${slug}`, record, { EX: SHOW_TTL_SECONDS });
+          await client.disconnect();
+          return Response.json({ slug, token });
+        }
+      }
+      // Token mismatch or slug gone — fall through to create new
+    }
 
-    return Response.json({ slug, token });
+    // Create new slug — use SETNX to prevent race conditions
+    let slug = baseSlug;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const created = await client.set(`show:${slug}`, record, { EX: SHOW_TTL_SECONDS, NX: true });
+      if (created) {
+        await client.disconnect();
+        return Response.json({ slug, token });
+      }
+      // Slug taken — append random suffix and retry
+      const suffix = Math.random().toString(36).slice(2, 6);
+      slug = `${baseSlug}-${suffix}`;
+    }
+
+    await client.disconnect();
+    return Response.json({ error: 'Could not generate unique slug — try again' }, { status: 409 });
   } catch (e) {
     try { await client?.disconnect(); } catch { /* ignore */ }
     return Response.json(
