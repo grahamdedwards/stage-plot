@@ -2286,6 +2286,7 @@ function SetupTab({
       if (version !== resolveVersionRef.current) return;
       if (res.status === 401) {
         setChartsError('Google session expired — reconnect Drive');
+        onDisconnectGoogle();
         return;
       }
       if (!res.ok) {
@@ -2313,7 +2314,7 @@ function SetupTab({
         setChartsResolving(false);
       }
     }
-  }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig]);
+  }, [googleToken, config.chartsRootFolderId, config.setlist, updateConfig, onDisconnectGoogle]);
 
   // Auto-resolve charts when setlist titles or folder ID change (debounced 1s)
   const resolveSignature = `${config.chartsRootFolderId ?? ''}\n${config.setlist.map((s) => s.title).join('\0')}`;
