@@ -1,0 +1,128 @@
+'use client';
+
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { getSupabaseBrowser } from '@/lib/supabase-browser';
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-zinc-950" />}>
+      <SignInForm />
+    </Suspense>
+  );
+}
+
+function SignInForm() {
+  const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
+  const [step, setStep] = useState<'email' | 'otp'>('email');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect') || '/dashboard';
+
+  async function handleSendOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    const supabase = getSupabaseBrowser();
+    const { error: otpError } = await supabase.auth.signInWithOtp({ email });
+
+    setLoading(false);
+    if (otpError) {
+      setError(otpError.message);
+      return;
+    }
+    setStep('otp');
+  }
+
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    const supabase = getSupabaseBrowser();
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: 'email',
+    });
+
+    if (verifyError) {
+      setLoading(false);
+      setError(verifyError.message);
+      return;
+    }
+
+    // Activate any pending collaborator invites
+    await fetch('/api/auth/activate-invites', { method: 'POST' });
+
+    router.push(redirect);
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-white">ShowRunr</h1>
+          <p className="text-zinc-400 mt-1">Sign in to manage your shows</p>
+        </div>
+
+        {step === 'email' ? (
+          <form onSubmit={handleSendOtp} className="space-y-4">
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              required
+              className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Sending...' : 'Send Code'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleVerifyOtp} className="space-y-4">
+            <p className="text-sm text-zinc-400 text-center">
+              Enter the 6-digit code sent to <strong className="text-white">{email}</strong>
+            </p>
+            <input
+              type="text"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              required
+              maxLength={6}
+              className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-zinc-700 text-white text-center text-2xl tracking-[0.5em] font-mono placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={loading || otp.length !== 6}
+              className="w-full py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Verifying...' : 'Sign In'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStep('email'); setOtp(''); }}
+              className="w-full text-sm text-zinc-500 hover:text-zinc-300"
+            >
+              Use a different email
+            </button>
+          </form>
+        )}
+
+        {error && (
+          <p className="text-sm text-red-400 text-center">{error}</p>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,97 @@
+import { NextRequest } from 'next/server';
+import { getSupabaseServer } from '@/lib/supabase-server';
+
+const RESERVED_SLUGS = new Set([
+  'dashboard', 'sign-in', 'sign-out', 'api', 'admin',
+  'settings', 'new', 'import', 'export', 'about', 'help',
+  'pricing', 'terms', 'privacy', 'favicon.ico', 'robots.txt',
+]);
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'show';
+}
+
+// GET /api/shows — list authenticated user's shows
+export async function GET() {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
+  // Get owned shows
+  const { data: owned } = await supabase
+    .from('shows')
+    .select('id, slug, name, venue, show_date, updated_at')
+    .eq('owner_id', user.id)
+    .order('updated_at', { ascending: false });
+
+  // Get shows user collaborates on
+  const { data: collabs } = await supabase
+    .from('show_collaborators')
+    .select('show_id, role, shows(id, slug, name, venue, show_date, updated_at)')
+    .eq('user_id', user.id);
+
+  return Response.json({
+    owned: owned || [],
+    collaborating: (collabs || []).map((c) => ({
+      ...(c.shows as unknown as Record<string, unknown>),
+      role: c.role,
+    })),
+  });
+}
+
+// POST /api/shows — create a new show
+export async function POST(request: NextRequest) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const { config, name, venue, show_date } = body;
+
+  if (!config || !name) {
+    return Response.json({ error: 'config and name are required' }, { status: 400 });
+  }
+
+  // Generate slug with collision handling
+  const baseSlug = slugify(name);
+  let slug = baseSlug;
+
+  if (RESERVED_SLUGS.has(slug)) {
+    slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+  }
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data, error } = await supabase
+      .from('shows')
+      .insert({
+        slug,
+        owner_id: user.id,
+        config,
+        name,
+        venue: venue || null,
+        show_date: show_date || null,
+      })
+      .select('id, slug, updated_at')
+      .single();
+
+    if (!error && data) {
+      return Response.json(data, { status: 201 });
+    }
+
+    // Unique constraint violation — try with suffix
+    if (error?.code === '23505') {
+      slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+      continue;
+    }
+
+    return Response.json({ error: error?.message || 'Failed to create show' }, { status: 500 });
+  }
+
+  return Response.json({ error: 'Could not generate unique slug' }, { status: 409 });
+}
