@@ -1,4 +1,4 @@
-# Inline Chart Viewer — Design Spec v1.2
+# Inline Chart Viewer — Design Spec v1.3
 
 ## Problem
 
@@ -14,14 +14,14 @@ One-tap chart viewing that stays in-app. Flipping between songs should feel as f
 
 1. Chart request → check offline cache (Cache API) → if miss, fetch via `/api/drive/download` → get raw PDF blob
 2. Pass blob to **pdf.js** → render target page to `<canvas>` at device resolution
-3. Store loaded `PDFDocumentProxy` in memory map keyed by `fileId` for session reuse (avoids re-parsing)
+3. Store loaded `PDFDocumentProxy` in memory map keyed by `${fileId}:${modifiedTime}` for session reuse (avoids re-parsing). Compound key ensures a Drive file update within the same session invalidates the stale parsed doc, matching the offline cache's existing `fileId + modifiedTime` versioning.
 
 ### Why pdf.js + canvas (not `<embed>` or `<iframe>`)
 
 - **Page-level control** — render one page at a time, deliberate page turns mid-show (no accidental scroll)
 - **Separation of axes** — tap = page turn, swipe = song change. `<embed>` conflates vertical scroll with page navigation
 - **Consistent rendering** — same behavior across all browsers/devices. `<embed>` PDF support varies on mobile
-- **Portrait enforcement** — canvas dimensions controlled by us, always portrait
+- **Orientation control** — canvas dimensions controlled by us, native page aspect preserved and scaled to fit viewport
 - **Dependency:** `pdfjs-dist` (Mozilla, Apache 2.0, ~500KB). Powers Firefox's PDF viewer. Commercial use, no copyleft.
 
 ### Prefetch strategy
@@ -207,6 +207,15 @@ When no role filter (All Parts):
 | `pdfjs-dist` | Apache 2.0 | ~500KB | PDF parsing + page rendering to canvas |
 
 No other new dependencies. pdf.js is Mozilla's official PDF renderer, actively maintained, used in Firefox.
+
+### pdf.js worker configuration
+
+pdf.js offloads PDF parsing to a Web Worker for non-blocking rendering. In a Next.js environment, the worker file must be served as a static asset:
+
+- Copy `pdfjs-dist/build/pdf.worker.min.mjs` to `public/pdf.worker.min.mjs` (via postinstall script or manual copy)
+- Set `pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'` before any `getDocument()` call
+- This avoids the fake-worker fallback (which runs parsing on the main thread and degrades mobile performance)
+- The worker file is ~300KB and cached by the browser after first load
 
 ## What Changes
 
