@@ -23,6 +23,7 @@ interface CachedDoc {
 }
 
 const docCache = new Map<string, CachedDoc>();
+const failedKeys = new Set<string>(); // negative cache for failed loads
 const MAX_CACHED_DOCS = 5;
 
 function cacheKey(chart: Chart): string {
@@ -51,6 +52,10 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
   if (!chart.fileId) return null;
 
   const key = cacheKey(chart);
+
+  // Skip known-failed loads (prevents retry churn on private files)
+  if (failedKeys.has(key)) return null;
+
   const cached = docCache.get(key);
   if (cached) {
     cached.lastAccess = Date.now();
@@ -61,15 +66,14 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
   let blobUrl = await getCachedChartUrl(chart);
   let ownsBlobUrl = false;
 
-  // Fall back to network fetch
-  if (!blobUrl && accessToken) {
+  // Fall back to network fetch (works with or without auth for public files)
+  if (!blobUrl) {
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
       const res = await fetch('/api/drive/download', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ fileId: chart.fileId, mimeType: chart.mimeType }),
       });
       if (res.ok) {
@@ -82,7 +86,10 @@ export async function loadPdfDoc(chart: Chart, accessToken?: string): Promise<PD
     }
   }
 
-  if (!blobUrl) return null;
+  if (!blobUrl) {
+    failedKeys.add(key);
+    return null;
+  }
 
   try {
     const pdfjs = await getPdfjs();
@@ -163,6 +170,7 @@ export function destroyAllDocs() {
     if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
   }
   docCache.clear();
+  failedKeys.clear();
 }
 
 export function prefetchChart(chart: Chart, accessToken?: string) {

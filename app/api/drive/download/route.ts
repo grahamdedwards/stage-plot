@@ -8,14 +8,35 @@ const EXPORT_MIME_TYPES: Record<string, string> = {
   'application/vnd.google-apps.presentation': 'application/pdf',
 };
 
+// Simple in-memory rate limit: max 60 unauthenticated requests per IP per minute
+const unauthRateMap = new Map<string, { count: number; resetAt: number }>();
+const UNAUTH_RATE_LIMIT = 60;
+const UNAUTH_RATE_WINDOW_MS = 60_000;
+
+function checkUnauthRate(ip: string): boolean {
+  const now = Date.now();
+  let entry = unauthRateMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + UNAUTH_RATE_WINDOW_MS };
+    unauthRateMap.set(ip, entry);
+  }
+  entry.count++;
+  return entry.count <= UNAUTH_RATE_LIMIT;
+}
+
 // Proxies a Drive file download. Handles Google Docs -> PDF export.
 // POST /api/drive/download
-// Authorization: Bearer <access_token>
+// Authorization: Bearer <access_token> (optional for public files)
 // Body: { fileId: string, mimeType?: string }
 export async function POST(request: NextRequest) {
-  const accessToken = request.headers.get('authorization')?.replace('Bearer ', '');
+  const accessToken = request.headers.get('authorization')?.replace('Bearer ', '') || null;
+
+  // Rate limit unauthenticated requests
   if (!accessToken) {
-    return Response.json({ error: 'Missing access token' }, { status: 401 });
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    if (!checkUnauthRate(ip)) {
+      return Response.json({ error: 'Rate limit exceeded' }, { status: 429 });
+    }
   }
 
   let body: { fileId: string; mimeType?: string };
@@ -34,27 +55,33 @@ export async function POST(request: NextRequest) {
 
     let url: string;
     if (exportMime) {
-      // Google Workspace file — use export endpoint
       url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}/export?mimeType=${encodeURIComponent(exportMime)}&supportsAllDrives=true`;
     } else {
-      // Regular file — direct download
       url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(body.fileId)}?alt=media&supportsAllDrives=true`;
     }
 
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const headers: Record<string, string> = {};
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+    const res = await fetch(url, { headers });
 
-    // Export too large (>10MB Google limit) — Google returns 403 for oversized exports
-    if (res.status === 413 || (res.status === 403 && exportMime)) {
+    // Handle auth/permission failures BEFORE export-size check
+    if (res.status === 401 || res.status === 403) {
+      // Distinguish: authenticated 403 on export = likely too large;
+      // unauthenticated or non-export 403 = permission denied
+      if (res.status === 403 && exportMime && accessToken) {
+        return Response.json(
+          { error: 'export_too_large', fileId: body.fileId },
+          { status: 413 },
+        );
+      }
+      throw new DriveAuthError();
+    }
+
+    if (res.status === 413) {
       return Response.json(
         { error: 'export_too_large', fileId: body.fileId },
         { status: 413 },
       );
-    }
-
-    if (res.status === 401 || res.status === 403) {
-      throw new DriveAuthError();
     }
 
     if (!res.ok) {
@@ -65,7 +92,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Stream the file bytes back with appropriate content type
     const contentType = exportMime ?? res.headers.get('content-type') ?? 'application/octet-stream';
     const bytes = await res.arrayBuffer();
 
@@ -74,12 +100,15 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': contentType,
         'Content-Length': String(bytes.byteLength),
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'public, max-age=3600',
       },
     });
   } catch (e) {
     if (e instanceof DriveAuthError) {
-      return Response.json({ error: 'Google session expired — reconnect in Setup' }, { status: 401 });
+      return Response.json(
+        { error: accessToken ? 'Google session expired — reconnect in Setup' : 'File is not publicly accessible' },
+        { status: accessToken ? 401 : 403 },
+      );
     }
     return Response.json(
       { error: `Download error: ${e instanceof Error ? e.message : String(e)}` },
