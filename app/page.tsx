@@ -102,7 +102,7 @@ function configToBand(c: AppConfig): BandConfig {
   return {
     slug: 'custom',
     name: c.showInfo.bandName || 'Untitled',
-    lineup: c.lineup || `${c.stagePlot.length}-Piece Band`,
+    lineup: c.lineup || '',
     stagePlot: c.stagePlot,
     inputs: c.inputs,
     monitors: c.monitors,
