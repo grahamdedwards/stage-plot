@@ -12,9 +12,13 @@ export async function getSupabaseServer() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
+            // Can fail in Route Handlers — session refresh handled by middleware
+          }
         },
       },
     },
