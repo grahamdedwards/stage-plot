@@ -1,6 +1,6 @@
 # Design: Chart Library — Owner-Scoped, Reusable Across Shows
 
-**Status:** Draft v1.2 — Post-adversarial review (8 findings across 2 rounds)
+**Status:** Draft v1.3 — Post-adversarial review (12 findings across 3 rounds)
 **Depends on:** Supabase backend (PR #44, merged)
 **Scope:** Replace show-scoped chart storage with an owner-scoped chart library. Charts are uploaded once, reused across all shows. Auto-matched to setlist songs by normalized title.
 
@@ -77,9 +77,11 @@ const LEADING_ARTICLES = /^(the|a|an)\s+/i;
 
 export function normalizeSongKey(title: string): string {
   const key = title
+    .normalize('NFD')              // decompose: "é" → "e" + combining accent (R2 Finding #3)
+    .replace(/[\u0300-\u036f]/g, '') // strip combining diacritical marks
     .toLowerCase()
     .replace(LEADING_ARTICLES, '')  // "The Thrill Is Gone" → "thrill is gone"
-    .replace(/[^a-z0-9\s]/g, '')   // strip punctuation and diacritics
+    .replace(/[^a-z0-9\s]/g, '')   // strip remaining punctuation
     .replace(/\s+/g, ' ')          // collapse whitespace
     .trim();
 
@@ -91,10 +93,14 @@ export function normalizeSongKey(title: string): string {
 }
 
 // "Valerie" → "valerie"
+// "Beyoncé" → "beyonce" (NFD strips accent, keeps letter)
 // "Don't Stop Believin'" → "dont stop believin"
 // "The Thrill Is Gone" → "thrill is gone"
+// "Canción" → "cancion"
 // "Sweet Child O' Mine" → "sweet child o mine"
 ```
+
+**Diacritic handling (R3 Finding #3):** NFD decomposition splits "é" into "e" + combining acute accent. The combining mark regex strips the accent, preserving the base letter. This means "Beyoncé" and "Beyonce" normalize to the same key — correct behavior. Non-Latin scripts (Cyrillic, CJK) will produce empty keys and be rejected — acceptable for a product targeting English-speaking cover bands.
 
 **Finding #5 + R2-#2 fixes:**
 - Strips leading articles (consistent with existing Drive `normalize()` in `lib/drive.ts:69`)
@@ -201,9 +207,10 @@ create policy "Owner read own charts"
   on chart_library for select
   using (auth.uid() = owner_id);
 
--- Collaborators can read charts for songs in shows they have access to
--- (resolved via the show's setlist, not a direct FK)
--- For simplicity: collaborators read the owner's full library for shows they're on
+-- EXPLICIT DECISION (R3 Finding #4): Collaborators can read the owner's FULL library,
+-- not just charts for songs on tonight's setlist. This is intentional:
+-- bandmates may need charts for songs being rehearsed but not yet on a show.
+-- The library is not sensitive data — it's chord charts for cover songs.
 create policy "Collaborator read charts"
   on chart_library for select
   using (
@@ -239,8 +246,10 @@ When an anonymous viewer loads a show via slug, the API route (admin client) res
 // In GET /api/shows/[slug]
 const { data: show } = await admin.from('shows').select('*').eq('slug', slug).single();
 
-// Resolve charts from owner's library by matching setlist song titles
-const songKeys = show.config.setlist.map((s) => normalizeSongKey(s.title));
+// Resolve charts from owner's library — safe variant (never throws on blank titles)
+const songKeys = show.config.setlist
+  .map((s) => normalizeSongKeySafe(s.title))
+  .filter((k): k is string => k !== null);
 
 const { data: charts } = await admin
   .from('chart_library')
@@ -375,21 +384,32 @@ The safe pattern is: create `chart_library` alongside `charts`, dual-write durin
 ### POST /api/charts/upload (Revised)
 
 ```typescript
-// Input: file, song_title, role
+// Input: file, song_title, rawRole
 // (No more show_id or song_id — library is show-independent)
 
-const songKey = normalizeSongKey(songTitle);
-const storagePath = `${user.id}/${songKey}/${role.toLowerCase()}.${ext}`;
+const songKey = normalizeSongKey(songTitle);            // throws on empty (write path)
+const role = canonicalizeRole(rawRole);                 // 'Guitar' → 'guitar'
+const storagePath = `${user.id}/${songKey}/${role}.${ext}`;
+
+// Delete old blob if extension changed (Finding #4 orphan prevention)
+const { data: existing } = await supabase
+  .from('chart_library')
+  .select('storage_path')
+  .eq('owner_id', user.id).eq('song_key', songKey).eq('role', role)
+  .single();
+if (existing && existing.storage_path !== storagePath) {
+  await admin.storage.from('charts').remove([existing.storage_path]);
+}
 
 // Upload to Storage
 await admin.storage.from('charts').upload(storagePath, file, { upsert: true });
 
-// Upsert to chart_library
+// Upsert to chart_library (role is canonical — matches CHECK constraint)
 await supabase.from('chart_library').upsert({
   owner_id: user.id,
   song_key: songKey,
-  song_title: songTitle,  // preserve original casing
-  role,
+  song_title: songTitle,  // preserve original casing for display
+  role,                    // canonical lowercase from allowlist
   file_name: file.name,
   storage_path: storagePath,
   mime_type: file.type,
@@ -420,8 +440,8 @@ await admin.storage.from('charts').remove([chart.storage_path]);
 ```typescript
 // After fetching show config...
 const songKeys = show.config.setlist
-  .map((s) => normalizeSongKey(s.title))
-  .filter(Boolean);
+  .map((s) => normalizeSongKeySafe(s.title))
+  .filter((k): k is string => k !== null);
 
 const { data: charts } = await admin
   .from('chart_library')
@@ -512,3 +532,12 @@ All in one PR. The old `charts` table is empty, so no data migration needed.
 | R2-1 | **HIGH** | Role canonicalization inconsistent — schema unique on raw `role`, storage path uses `role.toLowerCase()`, original label also stored in `role` — three different values in the same field | Resolved: `role` column stores ONLY the canonical lowercase value from the allowlist. DB CHECK constraint enforces it. Storage path uses same value. UI title-cases for display only. One keyspace everywhere. |
 | R2-2 | **HIGH** | `normalizeSongKey` throws on empty — slug resolution maps all setlist titles through it without guard — one blank title crashes the page with a 500 | Two variants: `normalizeSongKey()` (throws, for writes) and `normalizeSongKeySafe()` (returns null, for reads). Slug resolution uses the safe variant and filters nulls. Blank songs get no charts, no crash. |
 | R2-3 | **MEDIUM** | Doc contains two conflicting migration patterns — early section has unsafe `DROP TABLE IF EXISTS`, later section has the guarded version | Removed the unsafe `DROP` from the schema section. Only the guarded migration in the Migration section is executable. |
+
+### Round 3 (v1.2 → v1.3): 4 findings
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| R3-1 | **HIGH** | Code snippets in slug resolution still call `normalizeSongKey` (throwing variant) despite R2-2 resolution specifying `normalizeSongKeySafe` | Fixed both snippet instances to use `normalizeSongKeySafe` with null filtering. |
+| R3-2 | **HIGH** | Upload route example uses raw `role.toLowerCase()` for path and upserts raw `role` — inconsistent with canonical-only decision | Fixed: `canonicalizeRole(rawRole)` called once at top, result used for path, DB insert, and orphan lookup. One value, one keyspace. |
+| R3-3 | **MEDIUM** | `[^a-z0-9\s]` regex drops accented letters entirely ("Beyoncé" → "beyonc") instead of transliterating — false negatives on accented titles | Added NFD decomposition + combining mark stripping before lowercasing. "Beyoncé" and "Beyonce" now both normalize to "beyonce". |
+| R3-4 | **MEDIUM** | Collaborator read scope grants full owner library — broader than "show-scoped" and should be explicit | Documented as explicit product decision: bandmates need access to the full repertoire, not just tonight's setlist. Library content (cover song chord charts) is not sensitive. |
