@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
 // DELETE /api/shows/delete — delete a show and its charts (owner only)
 export async function DELETE(request: NextRequest) {
@@ -29,20 +28,8 @@ export async function DELETE(request: NextRequest) {
     return Response.json({ error: 'Show not found or not owner' }, { status: 404 });
   }
 
-  const admin = getSupabaseAdmin();
-
-  // Delete all chart files from Storage first (auto-cleanup, no orphans)
-  const { data: charts } = await admin
-    .from('charts')
-    .select('storage_path')
-    .eq('show_id', id);
-
-  if (charts && charts.length > 0) {
-    const paths = charts.map((c) => c.storage_path);
-    await admin.storage.from('charts').remove(paths);
-  }
-
-  // Delete the show row — cascades to charts + collaborators in Postgres
+  // Delete the show row — cascades to collaborators in Postgres.
+  // Charts live in chart_library (owner-scoped, not show-scoped) — NOT deleted with the show.
   const { error } = await supabase
     .from('shows')
     .delete()

@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   const admin = getSupabaseAdmin();
 
-  // Delete old blob if extension changed (orphan prevention)
+  // Check for existing chart with different extension (orphan risk)
   const { data: existing } = await supabase
     .from('chart_library')
     .select('storage_path')
@@ -47,11 +47,9 @@ export async function POST(request: NextRequest) {
     .eq('role', role)
     .single();
 
-  if (existing && existing.storage_path !== storagePath) {
-    await admin.storage.from('charts').remove([existing.storage_path]);
-  }
+  const oldPath = existing?.storage_path !== storagePath ? existing?.storage_path : null;
 
-  // Upload to Storage
+  // Upload new blob FIRST (before deleting old — safe on failure)
   const { error: uploadError } = await admin.storage
     .from('charts')
     .upload(storagePath, file, {
@@ -61,6 +59,11 @@ export async function POST(request: NextRequest) {
 
   if (uploadError) {
     return Response.json({ error: uploadError.message }, { status: 500 });
+  }
+
+  // Only delete old blob AFTER new upload succeeds (no data loss on failure)
+  if (oldPath) {
+    await admin.storage.from('charts').remove([oldPath]);
   }
 
   // Upsert chart metadata

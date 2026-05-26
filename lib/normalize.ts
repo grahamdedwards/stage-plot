@@ -26,12 +26,12 @@ export function normalizeSongKeySafe(title: string): string | null {
 function normalizeInternal(title: string): string {
   return title
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')  // strip combining diacritics
     .toLowerCase()
-    .replace(LEADING_ARTICLES, '')
-    .replace(/[^a-z0-9\s]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[^a-z0-9\s]/g, '')     // strip punctuation FIRST
+    .replace(/\s+/g, ' ')            // collapse whitespace
+    .trim()
+    .replace(LEADING_ARTICLES, '');   // strip articles AFTER punctuation is gone
 }
 
 /**
