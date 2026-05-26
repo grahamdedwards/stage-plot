@@ -1,6 +1,6 @@
 # Design: Chart Library — Owner-Scoped, Reusable Across Shows
 
-**Status:** Draft v1.1 — Post-adversarial review (5 findings addressed)
+**Status:** Draft v1.2 — Post-adversarial review (8 findings across 2 rounds)
 **Depends on:** Supabase backend (PR #44, merged)
 **Scope:** Replace show-scoped chart storage with an owner-scoped chart library. Charts are uploaded once, reused across all shows. Auto-matched to setlist songs by normalized title.
 
@@ -40,19 +40,15 @@ Show B setlist: Valerie, Crazy, Sweet Child
 
 ### Data Model
 
-#### Replace `charts` table with `chart_library`
+#### `chart_library` table (replaces `charts` — see Migration section for safe drop procedure)
 
 ```sql
--- Drop the show-scoped charts table
-drop table if exists charts;
-
--- Owner-scoped chart library
 create table chart_library (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id),
   song_key text not null,          -- normalized song title (lowercase, stripped)
   song_title text not null,        -- display title (original casing, for UI)
-  role text not null,              -- 'Guitar', 'Lyrics', 'Keys', 'Bass', 'Horns', etc.
+  role text not null check (role in ('guitar', 'lyrics', 'keys', 'bass', 'horns', 'drums', 'other')),  -- canonical, lowercase, from allowlist
   file_name text not null,         -- original filename
   storage_path text not null,      -- path in Supabase Storage
   mime_type text not null,
@@ -100,13 +96,39 @@ export function normalizeSongKey(title: string): string {
 // "Sweet Child O' Mine" → "sweet child o mine"
 ```
 
-**Finding #5 fixes:**
+**Finding #5 + R2-#2 fixes:**
 - Strips leading articles (consistent with existing Drive `normalize()` in `lib/drive.ts:69`)
-- Throws on empty result (prevents collapsing multiple songs into one bucket)
 - Single implementation shared server + client (no drift)
-- Diacritics: stripped by the `[^a-z0-9\s]` regex. Songs with non-Latin titles ("Despacito" → "despacito") work fine. Purely-emoji or purely-punctuation titles rejected (edge case, acceptable).
+- Diacritics: stripped by the `[^a-z0-9\s]` regex. Songs with non-Latin titles ("Despacito" → "despacito") work fine.
 
-The upload route and slug resolution both import from `lib/normalize.ts` — one source of truth.
+**Two variants (R2 Finding #2):**
+
+```typescript
+// WRITE path (upload): throws on empty — prevents invalid data entering the DB
+export function normalizeSongKey(title: string): string {
+  const key = /* ... normalization logic ... */;
+  if (!key) throw new Error(`Cannot normalize song title: "${title}"`);
+  return key;
+}
+
+// READ path (slug resolution, show load): returns null on empty — never crashes
+export function normalizeSongKeySafe(title: string): string | null {
+  const key = /* ... same normalization logic ... */;
+  return key || null;
+}
+```
+
+Slug resolution uses `normalizeSongKeySafe` and filters out nulls:
+
+```typescript
+const songKeys = show.config.setlist
+  .map((s) => normalizeSongKeySafe(s.title))
+  .filter((k): k is string => k !== null);  // skip blank/invalid titles gracefully
+```
+
+Blank setlist entries (allowed by the current UI) simply get no charts — they don't crash the page.
+
+The upload route uses the throwing `normalizeSongKey` — if a user somehow triggers an upload for a blank title, it returns 400 rather than inserting garbage.
 
 #### Storage Path (Changed)
 
@@ -124,19 +146,31 @@ Example:
 
 Owner-scoped paths. No show ID in the path — charts are show-independent.
 
-**Role canonicalization (Finding #4):** Roles are lowercased and restricted to an allowlist to prevent path collisions and semantic duplicates:
+**Role canonicalization (Findings #4, R2-#1):** The `role` column stores the canonical lowercase value from the allowlist. This same value is used in the unique constraint, the storage path, and the UI display (title-cased for rendering). One keyspace, no drift.
 
 ```typescript
 const ALLOWED_ROLES = ['guitar', 'lyrics', 'keys', 'bass', 'horns', 'drums', 'other'] as const;
+type ChartRole = typeof ALLOWED_ROLES[number];
 
-function canonicalizeRole(input: string): string {
+function canonicalizeRole(input: string): ChartRole {
   const lower = input.toLowerCase().trim();
-  if (ALLOWED_ROLES.includes(lower as any)) return lower;
-  return 'other';  // unknown roles map to "other"
+  if (ALLOWED_ROLES.includes(lower as ChartRole)) return lower as ChartRole;
+  return 'other';
+}
+
+// Display in UI: capitalize first letter
+function displayRole(role: ChartRole): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
 }
 ```
 
-Users see the original role label in the UI (stored in `role` column), but the storage path uses the canonical form. If we need more roles later, we extend the allowlist — not a schema change.
+**What's stored:** `role = 'guitar'` (canonical, lowercase).
+**What's in the storage path:** `{owner_id}/{song_key}/guitar.pdf` (same canonical value).
+**What's in the unique constraint:** `(owner_id, song_key, role)` — uses the canonical value.
+**What the user sees:** "Guitar" (title-cased in UI only).
+**DB CHECK constraint:** Rejects any value not in the allowlist — impossible to insert a non-canonical role.
+
+If we need more roles later, add to the allowlist + ALTER the CHECK constraint. Not a schema change, just a constraint update.
 
 **Orphan prevention on re-upload (Finding #4):** When upserting a chart with a different file extension than the existing one, the upload route deletes the old Storage blob first:
 
@@ -459,12 +493,22 @@ All in one PR. The old `charts` table is empty, so no data migration needed.
 
 ---
 
-## Adversarial Cross-Check (Codex Review — 1 round, 5 findings)
+## Adversarial Cross-Check (Codex Review — 2 rounds, 8 findings)
+
+### Round 1 (v1.0 → v1.1): 5 findings
 
 | # | Severity | Finding | Resolution |
 |---|---|---|---|
 | 1 | **CRITICAL** | Slug response returns a JS `Map` which won't serialize to JSON — chart data dropped on the wire | Replaced with plain `Record<string, Array<...>>` object. Serializes correctly. |
 | 2 | **HIGH** | Upload/delete UI shown to all users but RLS restricts writes to owner only — confusing UX | `[+ Chart]` and `[x]` buttons conditionally rendered for `isOwner` only. Collaborators see read-only pills. Enforced in both UI and backend. |
 | 3 | **HIGH** | Migration drops `charts` table without guarding against non-empty state | Added `DO $$ ... IF count > 0 THEN RAISE EXCEPTION` guard. Documented dual-write pattern for future migrations with data. |
-| 4 | **MEDIUM** | Re-upload with different file extension orphans old Storage blob; free-text role creates path collisions | Upload route deletes old blob before uploading new one. Roles canonicalized via allowlist (`guitar`, `lyrics`, `keys`, `bass`, `horns`, `drums`, `other`). |
-| 5 | **MEDIUM** | Normalizer differs from existing Drive logic (missing article stripping), can return empty key | Unified normalizer in `lib/normalize.ts`: strips leading articles, throws on empty result, shared between server and client. |
+| 4 | **MEDIUM** | Re-upload with different file extension orphans old Storage blob; free-text role creates path collisions | Upload route deletes old blob before uploading new one. Roles canonicalized via allowlist. |
+| 5 | **MEDIUM** | Normalizer differs from existing Drive logic (missing article stripping), can return empty key | Unified normalizer in `lib/normalize.ts`: strips leading articles, shared between server and client. |
+
+### Round 2 (v1.1 → v1.2): 3 findings
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| R2-1 | **HIGH** | Role canonicalization inconsistent — schema unique on raw `role`, storage path uses `role.toLowerCase()`, original label also stored in `role` — three different values in the same field | Resolved: `role` column stores ONLY the canonical lowercase value from the allowlist. DB CHECK constraint enforces it. Storage path uses same value. UI title-cases for display only. One keyspace everywhere. |
+| R2-2 | **HIGH** | `normalizeSongKey` throws on empty — slug resolution maps all setlist titles through it without guard — one blank title crashes the page with a 500 | Two variants: `normalizeSongKey()` (throws, for writes) and `normalizeSongKeySafe()` (returns null, for reads). Slug resolution uses the safe variant and filters nulls. Blank songs get no charts, no crash. |
+| R2-3 | **MEDIUM** | Doc contains two conflicting migration patterns — early section has unsafe `DROP TABLE IF EXISTS`, later section has the guarded version | Removed the unsafe `DROP` from the schema section. Only the guarded migration in the Migration section is executable. |
