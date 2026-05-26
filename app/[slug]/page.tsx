@@ -43,6 +43,8 @@ import {
 import { loadPdfDoc, renderPage, destroyAllDocs, prefetchChart } from '@/lib/pdf-viewer';
 import { useShow } from '@/lib/use-show';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
+import { normalizeSongKeySafe, canonicalizeRole, displayRole } from '@/lib/normalize';
+import type { ChartRole } from '@/lib/normalize';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
 import { getBand } from '@/lib/bands';
@@ -219,15 +221,6 @@ export default function Page() {
   const [isOwner, setIsOwner] = useState(false);
   const [isEditor, setIsEditor] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const showChartsRef = useRef<Array<{
-    id: string;
-    song_id: string;
-    role: string;
-    file_name: string;
-    url: string;
-    mime_type: string;
-    updated_at: string;
-  }>>([]);
 
   const { saveConfig } = useShow(showId, slug, isOwner, isEditor);
 
@@ -249,26 +242,22 @@ export default function Page() {
 
         const cfg = withStableIds(data.config);
 
-        // Apply Supabase charts to setlist songs (by song_id)
-        if (data.charts && data.charts.length > 0) {
-          const chartsBySong = new Map<string, Chart[]>();
-          for (const c of data.charts) {
-            const list = chartsBySong.get(c.song_id) || [];
-            list.push({
+        // Apply charts from owner's library (matched by normalized song title)
+        if (data.charts && typeof data.charts === 'object') {
+          const chartMap = data.charts as Record<string, Array<{ id: string; role: string; url: string; mime_type: string; updated_at: string; file_name: string }>>;
+          cfg.setlist = cfg.setlist.map((song) => {
+            const songKey = normalizeSongKeySafe(song.title);
+            if (!songKey || !chartMap[songKey]) return song;
+            const charts: Chart[] = chartMap[songKey].map((c) => ({
               role: c.role,
               url: c.url,
               fileId: c.id,
               mimeType: c.mime_type,
               modifiedTime: c.updated_at,
               label: c.file_name,
-            });
-            chartsBySong.set(c.song_id, list);
-          }
-          cfg.setlist = cfg.setlist.map((song) => {
-            const charts = song.id ? chartsBySong.get(song.id) : undefined;
-            return charts ? { ...song, charts } : song;
+            }));
+            return { ...song, charts };
           });
-          showChartsRef.current = data.charts;
         }
 
         setConfig(cfg);
@@ -435,7 +424,7 @@ export default function Page() {
         <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       )}
       {tab === 'setup' && (
-        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} />
+        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} isOwner={isOwner} />
       )}
       {tab === 'ai' && (
         <div className="p-4 md:p-8">
@@ -2417,10 +2406,10 @@ const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300
 const btnRemove = 'px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors';
 
 // ─── Supabase Chart Upload Section ───────────────────────────────────────────
-function ChartUploadSection({ showId, songs, updateConfig }: {
-  showId: string;
+function ChartUploadSection({ songs, updateConfig, isOwner }: {
   songs: SetlistSong[];
   updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
+  isOwner: boolean;
 }) {
   const [uploading, setUploading] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -2447,8 +2436,7 @@ function ChartUploadSection({ showId, songs, updateConfig }: {
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('show_id', showId);
-    formData.append('song_id', target.id);
+    formData.append('song_title', target.title);
     formData.append('role', role);
 
     try {
@@ -2506,11 +2494,12 @@ function ChartUploadSection({ showId, songs, updateConfig }: {
             <div className="flex-1 flex flex-wrap gap-1">
               {(song.charts || []).map((c) => (
                 <span key={c.role} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-700">
-                  {c.role}
-                  <button onClick={() => handleDelete(song.id!, c.fileId!, c.role)} className="text-blue-400 hover:text-red-500" title="Remove">x</button>
+                  {displayRole(c.role as ChartRole)}
+                  {isOwner && <button onClick={() => handleDelete(song.id!, c.fileId!, c.role)} className="text-blue-400 hover:text-red-500" title="Remove">x</button>}
                 </span>
               ))}
             </div>
+            {isOwner && (
             <button
               onClick={() => { targetSongRef.current = { id: song.id!, title: song.title }; fileRef.current?.click(); }}
               disabled={uploading === song.id}
@@ -2518,6 +2507,7 @@ function ChartUploadSection({ showId, songs, updateConfig }: {
             >
               {uploading === song.id ? '...' : '+ Chart'}
             </button>
+            )}
           </div>
         ))}
       </div>
@@ -2533,6 +2523,7 @@ function SetupTab({
   googleError,
   onDisconnectGoogle,
   showId,
+  isOwner,
 }: {
   config: AppConfig;
   updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
@@ -2540,6 +2531,7 @@ function SetupTab({
   googleError?: string;
   onDisconnectGoogle: () => void;
   showId: string | null;
+  isOwner: boolean;
 }) {
   const [sheetUrl, setSheetUrl] = useState('');
   const [sheetLoading, setSheetLoading] = useState(false);
@@ -3104,9 +3096,9 @@ function SetupTab({
         {showId && config.setlist.length > 0 && (
           <section className={sectionCls}>
             <ChartUploadSection
-              showId={showId}
               songs={config.setlist}
               updateConfig={updateConfig}
+              isOwner={isOwner}
             />
           </section>
         )}

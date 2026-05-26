@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
+import { normalizeSongKey, canonicalizeRole } from '@/lib/normalize';
 
-// POST /api/charts/upload — upload a chart file (authenticated, ownership-verified)
+// POST /api/charts/upload — upload a chart to owner's library
 export async function POST(request: NextRequest) {
   const supabase = await getSupabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
@@ -13,50 +14,44 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
-  const showId = formData.get('show_id') as string | null;
-  const songId = formData.get('song_id') as string | null;
-  const role = formData.get('role') as string | null;
+  const songTitle = formData.get('song_title') as string | null;
+  const rawRole = formData.get('role') as string | null;
 
-  if (!file || !showId || !songId || !role) {
+  if (!file || !songTitle || !rawRole) {
     return Response.json(
-      { error: 'file, show_id, song_id, and role are required' },
+      { error: 'file, song_title, and role are required' },
       { status: 400 },
     );
   }
 
-  // Verify user is owner or editor BEFORE uploading to Storage.
-  // Check ownership first, then collaborator role.
-  const { data: show } = await supabase
-    .from('shows')
-    .select('id, owner_id')
-    .eq('id', showId)
-    .single();
-
-  if (!show) {
-    return Response.json({ error: 'Show not found or access denied' }, { status: 403 });
+  // Normalize and canonicalize
+  let songKey: string;
+  try {
+    songKey = normalizeSongKey(songTitle);
+  } catch {
+    return Response.json({ error: 'Invalid song title — cannot be empty or punctuation-only' }, { status: 400 });
   }
 
-  if (show.owner_id !== user.id) {
-    // Not owner — check if editor collaborator
-    const { data: collab } = await supabase
-      .from('show_collaborators')
-      .select('role')
-      .eq('show_id', showId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (!collab || collab.role !== 'editor') {
-      return Response.json({ error: 'Permission denied — only owners and editors can upload charts' }, { status: 403 });
-    }
-  }
-
-  // Construct storage path (server-side only — prevents path traversal)
+  const role = canonicalizeRole(rawRole);
   const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf';
-  const storagePath = `${showId}/${songId}/${role.toLowerCase()}.${ext}`;
+  const storagePath = `${user.id}/${songKey}/${role}.${ext}`;
 
   const admin = getSupabaseAdmin();
 
-  // Upload to Storage (upsert — replaces existing chart for same song+role)
+  // Delete old blob if extension changed (orphan prevention)
+  const { data: existing } = await supabase
+    .from('chart_library')
+    .select('storage_path')
+    .eq('owner_id', user.id)
+    .eq('song_key', songKey)
+    .eq('role', role)
+    .single();
+
+  if (existing && existing.storage_path !== storagePath) {
+    await admin.storage.from('charts').remove([existing.storage_path]);
+  }
+
+  // Upload to Storage
   const { error: uploadError } = await admin.storage
     .from('charts')
     .upload(storagePath, file, {
@@ -68,27 +63,26 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: uploadError.message }, { status: 500 });
   }
 
-  // Upsert chart metadata row
+  // Upsert chart metadata
   const { data: chart, error: dbError } = await supabase
-    .from('charts')
+    .from('chart_library')
     .upsert(
       {
-        show_id: showId,
-        song_id: songId,
+        owner_id: user.id,
+        song_key: songKey,
+        song_title: songTitle,
         role,
         file_name: file.name,
         storage_path: storagePath,
         mime_type: file.type,
         file_size: file.size,
-        uploaded_by: user.id,
       },
-      { onConflict: 'show_id,song_id,role' },
+      { onConflict: 'owner_id,song_key,role' },
     )
-    .select('id, song_id, role, file_name, storage_path, mime_type, file_size, updated_at')
+    .select('id, song_key, role, file_name, storage_path, mime_type, file_size, updated_at')
     .single();
 
   if (dbError) {
-    // Clean up the uploaded file if DB insert fails
     await admin.storage.from('charts').remove([storagePath]);
     return Response.json({ error: dbError.message }, { status: 500 });
   }
