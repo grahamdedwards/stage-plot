@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
+import { normalizeSongKeySafe } from '@/lib/normalize';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
@@ -27,21 +28,39 @@ export async function GET(
     return Response.json({ error: 'Show not found' }, { status: 404 });
   }
 
-  // Fetch charts for this show
-  const { data: charts } = await admin
-    .from('charts')
-    .select('id, song_id, role, file_name, storage_path, mime_type, file_size, updated_at')
-    .eq('show_id', show.id);
+  // Resolve charts from owner's library by normalized song titles
+  const setlist = (show.config as { setlist?: Array<{ title: string }> })?.setlist || [];
+  const songKeys = setlist
+    .map((s) => normalizeSongKeySafe(s.title))
+    .filter((k): k is string => k !== null);
 
-  // Build public chart URLs
-  const chartsWithUrls = (charts || []).map((c) => ({
-    ...c,
-    url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/charts/${c.storage_path}`,
-  }));
+  const chartsBySong: Record<string, Array<Record<string, unknown>>> = {};
+
+  if (songKeys.length > 0) {
+    const { data: charts } = await admin
+      .from('chart_library')
+      .select('id, song_key, role, file_name, storage_path, mime_type, file_size, updated_at')
+      .eq('owner_id', show.owner_id)
+      .in('song_key', songKeys);
+
+    for (const c of charts || []) {
+      if (!chartsBySong[c.song_key]) chartsBySong[c.song_key] = [];
+      chartsBySong[c.song_key].push({
+        id: c.id,
+        song_key: c.song_key,
+        role: c.role,
+        file_name: c.file_name,
+        mime_type: c.mime_type,
+        file_size: c.file_size,
+        updated_at: c.updated_at,
+        url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/charts/${c.storage_path}`,
+      });
+    }
+  }
 
   return Response.json({
     config: show.config,
-    charts: chartsWithUrls,
+    charts: chartsBySong,
     slug,
   });
 }

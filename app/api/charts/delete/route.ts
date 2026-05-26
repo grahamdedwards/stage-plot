@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-// DELETE /api/charts/delete — delete a chart (authenticated, owner/editor only)
+// DELETE /api/charts/delete — delete a chart from owner's library
 export async function DELETE(request: NextRequest) {
   const supabase = await getSupabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
@@ -17,29 +17,19 @@ export async function DELETE(request: NextRequest) {
     return Response.json({ error: 'chart_id is required' }, { status: 400 });
   }
 
-  // Fetch storage_path BEFORE delete (need it for Storage cleanup)
-  const { data: chart } = await supabase
-    .from('charts')
-    .select('id, storage_path')
+  // DB delete first — RLS "Owner delete charts" enforces ownership
+  const { data: chart, error: deleteError } = await supabase
+    .from('chart_library')
+    .delete()
     .eq('id', chart_id)
+    .select('storage_path')
     .single();
 
-  if (!chart) {
-    return Response.json({ error: 'Chart not found or access denied' }, { status: 404 });
+  if (deleteError || !chart) {
+    return Response.json({ error: 'Chart not found or permission denied' }, { status: 403 });
   }
 
-  // DB delete FIRST — RLS "Chart delete" policy enforces owner/editor access.
-  // If user is a viewer, this will return 0 rows affected (RLS blocks it).
-  const { error: deleteError, count } = await supabase
-    .from('charts')
-    .delete({ count: 'exact' })
-    .eq('id', chart_id);
-
-  if (deleteError || count === 0) {
-    return Response.json({ error: 'Permission denied — only owners and editors can delete charts' }, { status: 403 });
-  }
-
-  // Only delete from Storage AFTER DB delete succeeds (no orphaned state)
+  // Storage cleanup after DB confirms deletion
   const admin = getSupabaseAdmin();
   await admin.storage.from('charts').remove([chart.storage_path]);
 
