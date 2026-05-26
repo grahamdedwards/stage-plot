@@ -1399,7 +1399,7 @@ function ShowSortableRow({
 // ════════════════════════════════════════════════════════════════════════════
 
 function SetupSetlistTable({
-  setlist, canResolveCharts, onReorder, onUpdate, onDelete, onAdd,
+  setlist, canResolveCharts, onReorder, onUpdate, onDelete, onAdd, isOwner, onChartUpload, onChartDelete,
 }: {
   setlist: SetlistSong[];
   canResolveCharts: boolean;
@@ -1407,6 +1407,9 @@ function SetupSetlistTable({
   onUpdate: (idx: number, field: string, value: string) => void;
   onDelete: (idx: number) => void;
   onAdd: () => void;
+  isOwner: boolean;
+  onChartUpload?: (songTitle: string) => void;
+  onChartDelete?: (chartId: string, songTitle: string, role: string) => void;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1437,7 +1440,7 @@ function SetupSetlistTable({
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-16">Key</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[100px]">Lead</th>
                   <th className="text-left px-2 py-2 text-xs font-bold text-gray-500">Notes</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 w-24">Scene Note</th>
+                  <th className="text-left px-2 py-2 text-xs font-bold text-gray-500 min-w-[120px]">Charts</th>
                   <th className="w-16"></th>
                   <th className="w-10"></th>
                 </tr>
@@ -1454,6 +1457,9 @@ function SetupSetlistTable({
                     onDelete={onDelete}
                     onMoveUp={() => onReorder(idx, idx - 1)}
                     onMoveDown={() => onReorder(idx, idx + 1)}
+                    isOwner={isOwner}
+                    onChartUpload={onChartUpload}
+                    onChartDelete={onChartDelete}
                   />
                 ))}
               </tbody>
@@ -1475,7 +1481,7 @@ const inputCls = 'w-full px-2 py-2.5 sm:py-1.5 text-sm border border-gray-300 ro
 const arrowBtn = 'px-1 py-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 disabled:cursor-not-allowed';
 
 function SetupSortableRow({
-  song, idx, total, canResolveCharts, onUpdate, onDelete, onMoveUp, onMoveDown,
+  song, idx, total, canResolveCharts, onUpdate, onDelete, onMoveUp, onMoveDown, isOwner, onChartUpload, onChartDelete,
 }: {
   song: SetlistSong;
   idx: number;
@@ -1485,6 +1491,9 @@ function SetupSortableRow({
   onDelete: (idx: number) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  isOwner: boolean;
+  onChartUpload?: (songTitle: string) => void;
+  onChartDelete?: (chartId: string, songTitle: string, role: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: song.id! });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
@@ -1518,7 +1527,19 @@ function SetupSortableRow({
         <input className={inputCls} value={song.notes ?? ''} onChange={(e) => onUpdate(idx, 'notes', e.target.value)} />
       </td>
       <td className="px-2 py-1">
-        <input className={inputCls} value={song.sceneNote ?? ''} onChange={(e) => onUpdate(idx, 'sceneNote', e.target.value)} />
+        <div className="flex flex-wrap items-center gap-1">
+          {(song.charts || []).map((c) => (
+            <span key={c.role} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded bg-blue-50 text-blue-700">
+              {displayRole(c.role as ChartRole)}
+              {isOwner && onChartDelete && (
+                <button onClick={() => onChartDelete(c.fileId!, song.title, c.role)} className="text-blue-400 hover:text-red-500 ml-0.5 leading-none">&times;</button>
+              )}
+            </span>
+          ))}
+          {isOwner && onChartUpload && (
+            <button onClick={() => onChartUpload(song.title)} className="text-xs text-gray-400 hover:text-gray-600">+</button>
+          )}
+        </div>
       </td>
       <td className="px-1 py-1">
         <div className="flex flex-col items-center">
@@ -2412,117 +2433,6 @@ const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:
 const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors';
 const btnRemove = 'px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors';
 
-// ─── Supabase Chart Upload Section ───────────────────────────────────────────
-function ChartUploadSection({ songs, updateConfig, isOwner }: {
-  songs: SetlistSong[];
-  updateConfig: (fn: (prev: AppConfig) => AppConfig) => void;
-  isOwner: boolean;
-}) {
-  const [uploading, setUploading] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
-  const targetSongRef = useRef<{ id: string; title: string } | null>(null);
-
-  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    const target = targetSongRef.current;
-    if (!file || !target) return;
-
-    const nameLower = file.name.toLowerCase();
-    const roles = ['Guitar', 'Lyrics', 'Keys', 'Bass', 'Horns', 'Drums'];
-    let detectedRole = 'Other';
-    for (const r of roles) {
-      if (nameLower.includes(r.toLowerCase())) { detectedRole = r; break; }
-    }
-
-    const role = prompt(`Chart role for "${target.title}":`, detectedRole);
-    if (!role) { if (fileRef.current) fileRef.current.value = ''; return; }
-
-    setUploading(target.id);
-    setError('');
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('song_title', target.title);
-    formData.append('role', role);
-
-    try {
-      const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        setError(err.error || 'Upload failed');
-        return;
-      }
-      const chart = await res.json();
-      updateConfig((prev) => ({
-        ...prev,
-        setlist: prev.setlist.map((s) =>
-          s.id === target.id
-            ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
-            : s
-        ),
-      }));
-    } catch {
-      setError('Network error');
-    } finally {
-      setUploading(null);
-      targetSongRef.current = null;
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  }
-
-  async function handleDelete(songId: string, chartId: string, role: string) {
-    if (!confirm(`Delete ${role} chart?`)) return;
-    const res = await fetch('/api/charts/delete', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chart_id: chartId }),
-    });
-    if (res.ok) {
-      updateConfig((prev) => ({
-        ...prev,
-        setlist: prev.setlist.map((s) =>
-          s.id === songId
-            ? { ...s, charts: (s.charts || []).filter((c) => c.fileId !== chartId) }
-            : s
-        ),
-      }));
-    }
-  }
-
-  return (
-    <div>
-      <h2 className="text-lg font-bold mb-4">Charts</h2>
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
-      <div className="space-y-1">
-        {songs.map((song) => (
-          <div key={song.id} className="flex items-center gap-2 py-1.5 border-b border-gray-100">
-            <span className="text-sm font-medium w-36 truncate">{song.title}</span>
-            <div className="flex-1 flex flex-wrap gap-1">
-              {(song.charts || []).map((c) => (
-                <span key={c.role} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-700">
-                  {displayRole(c.role as ChartRole)}
-                  {isOwner && <button onClick={() => handleDelete(song.id!, c.fileId!, c.role)} className="text-blue-400 hover:text-red-500" title="Remove">x</button>}
-                </span>
-              ))}
-            </div>
-            {isOwner && (
-            <button
-              onClick={() => { targetSongRef.current = { id: song.id!, title: song.title }; fileRef.current?.click(); }}
-              disabled={uploading === song.id}
-              className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 disabled:opacity-50"
-            >
-              {uploading === song.id ? '...' : '+ Chart'}
-            </button>
-            )}
-          </div>
-        ))}
-      </div>
-      <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleFileSelect} className="hidden" />
-    </div>
-  );
-}
-
 function SetupTab({
   config,
   updateConfig,
@@ -3082,6 +2992,7 @@ function SetupTab({
           <SetupSetlistTable
             setlist={config.setlist}
             canResolveCharts={canResolveCharts}
+            isOwner={isOwner}
             onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))}
             onUpdate={(idx, field, value) => updateConfig((p) => {
               const arr = [...p.setlist];
@@ -3096,21 +3007,60 @@ function SetupTab({
               ...p,
               setlist: [...p.setlist, { id: crypto.randomUUID(), position: p.setlist.length + 1, title: '', lead: '', notes: '' }],
             }))}
+            onChartUpload={(songTitle) => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.pdf,.png,.jpg,.jpeg';
+              input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                const roles = ['Guitar', 'Lyrics', 'Keys', 'Bass', 'Horns', 'Drums'];
+                const nameLower = file.name.toLowerCase();
+                let detected = 'Other';
+                for (const r of roles) { if (nameLower.includes(r.toLowerCase())) { detected = r; break; } }
+                const role = prompt(`Chart role for "${songTitle}":`, detected);
+                if (!role) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('song_title', songTitle);
+                formData.append('role', role);
+                const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
+                if (res.ok) {
+                  const chart = await res.json();
+                  updateConfig((prev) => ({
+                    ...prev,
+                    setlist: prev.setlist.map((s) =>
+                      s.title === songTitle
+                        ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
+                        : s
+                    ),
+                  }));
+                }
+              };
+              input.click();
+            }}
+            onChartDelete={async (chartId, songTitle, role) => {
+              if (!confirm(`Delete ${role} chart for "${songTitle}"?`)) return;
+              const res = await fetch('/api/charts/delete', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chart_id: chartId }),
+              });
+              if (res.ok) {
+                updateConfig((prev) => ({
+                  ...prev,
+                  setlist: prev.setlist.map((s) =>
+                    s.title === songTitle
+                      ? { ...s, charts: (s.charts || []).filter((c) => c.fileId !== chartId) }
+                      : s
+                  ),
+                }));
+              }
+            }}
           />
         </section>
 
-        {/* ── 6. Charts (Supabase upload) ────────────────────────────────── */}
-        {showId && config.setlist.length > 0 && (
-          <section className={sectionCls}>
-            <ChartUploadSection
-              songs={config.setlist}
-              updateConfig={updateConfig}
-              isOwner={isOwner}
-            />
-          </section>
-        )}
-
-        {/* ── 7. Google Drive Charts (legacy) ─────────────────────────────── */}
+        {/* ── 6. Google Drive Charts (legacy — only when no Supabase show) ── */}
         {!showId && (
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Charts / Lead Sheets</h2>
