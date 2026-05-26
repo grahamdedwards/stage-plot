@@ -148,7 +148,10 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white p-6 max-w-4xl mx-auto">
       <header className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-bold">My Shows</h1>
+        <div>
+          <h1 className="text-2xl font-bold">My Shows</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">ShowRunr</p>
+        </div>
         <button
           onClick={handleSignOut}
           className="text-sm text-zinc-500 hover:text-zinc-300"
