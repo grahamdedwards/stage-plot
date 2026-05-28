@@ -11,13 +11,13 @@ Today, the Show tab mixes both — the performer sees channel numbers and monito
 
 ## Goal
 
-A dedicated **Perform** tab optimized for musicians on stage: large text, setlist-first, one-tap chart access, minimal chrome. The existing Show tab becomes the engineer's view. Each audience gets exactly what they need.
+A dedicated **Perform** tab optimized for musicians on stage: large text, setlist-first, one-tap chart access, minimal chrome. The existing Show tab becomes the **Mix** tab (engineer's view). Setup becomes **Config**. Each audience gets exactly what they need.
 
 ## Relationship to Designer/Performer Roles (Backlog #22)
 
 This spec builds the **view layer** for performers. The **access control layer** (who can edit vs. view, show locking, invite model) is a separate spec. This is intentional — the Perform tab is useful immediately for show owners viewing their own show on a tablet, before any role/permission system exists.
 
-When the role system is built later, it can simply default shared-slug viewers to the Perform tab and restrict Setup/Show tabs to the designer.
+When the role system is built later, it can simply default shared-slug viewers to the Perform tab and restrict Config/Mix tabs to the designer.
 
 ## UX Design
 
@@ -25,11 +25,16 @@ When the role system is built later, it can simply default shared-slug viewers t
 
 Current: `Show | Setup | AI`
 
-New: `Perform | Show | Setup | AI`
+New: `Perform | Mix | Config | AI`
 
-Perform is first because it's the primary use case during a gig. The engineer switches to Show; the performer stays on Perform.
+- **Perform** — musician's gig-day view (setlist, charts, keys)
+- **Mix** — FOH/Mon engineer's view (stage plot, input list, monitor mixes, scene notes) — renamed from "Show"
+- **Config** — build/edit the show (stage plot editor, input list editor, export/import) — renamed from "Setup"
+- **AI** — agent codesigner (unchanged)
 
-**On shared slug views (not the owner):** Default to Perform tab. Show tab still accessible (engineers viewing a shared link need the full patch). Setup and AI tabs hidden for non-owners (existing behavior).
+Perform is first because it's the primary use case during a gig. The engineer switches to Mix; the performer stays on Perform.
+
+**On shared slug views (not the owner):** Default to Perform tab. Mix tab still accessible (engineers viewing a shared link need the full patch). Config and AI tabs hidden for non-owners (existing behavior).
 
 ### Perform tab layout
 
@@ -74,12 +79,12 @@ Full-height scrollable list. Each song row:
 #### Chart access
 
 - Tap a song row to open the inline chart viewer (already built — PR #33-34)
-- Behavior identical to Show tab chart tap: if one chart for the active role, opens directly; if multiple, shows pill picker
+- Behavior identical to Mix tab chart tap: if one chart for the active role, opens directly; if multiple, shows pill picker
 - Role filter persists from the existing sessionStorage-based role filter
 
 #### Empty states
 
-- No setlist → "No setlist yet. Set up your show in the Setup tab."
+- No setlist → "No setlist yet. Set up your show in the Config tab."
 - No charts resolved → song rows have no music note; chart tap shows "No charts for this song"
 
 ### What Perform does NOT show
@@ -123,7 +128,7 @@ Stored in `sessionStorage` under key `showrunr-current-song-{showId}` so it surv
 
 ### Approach
 
-Extract a new `PerformTab` component following the same pattern as `ShowTab` and `SetupTab` in `app/[slug]/page.tsx`.
+Extract a new `PerformTab` component following the same pattern as `MixTab` (currently `ShowTab`) and `ConfigTab` (currently `SetupTab`) in `app/[slug]/page.tsx`.
 
 ### Files to create
 
@@ -132,11 +137,12 @@ Extract a new `PerformTab` component following the same pattern as `ShowTab` and
 ### Files to modify
 
 - `app/[slug]/page.tsx`:
-  1. Add `'perform'` to the tab union type: `useState<'perform' | 'show' | 'setup' | 'ai'>('perform')`
-  2. Default tab changes from `'show'` to `'perform'`
-  3. Add Perform tab button to the tab bar
-  4. Add `PerformTab` component (renders setlist, handles current-song, delegates to inline chart viewer)
-  5. For non-owner slug views: default to `'perform'` instead of `'show'`
+  1. Rename tab union type: `useState<'perform' | 'mix' | 'config' | 'ai'>('perform')`
+  2. Rename `ShowTab` → `MixTab`, `SetupTab` → `ConfigTab` (component names + tab labels)
+  3. Default tab changes from `'show'` to `'perform'`
+  4. Add Perform tab button to the tab bar (first position)
+  5. Add `PerformTab` component (renders setlist, handles current-song, delegates to inline chart viewer)
+  6. For non-owner slug views: default to `'perform'` instead of `'mix'`
 
 ### Component: PerformTab
 
@@ -158,11 +164,11 @@ function PerformTab({
 }
 ```
 
-**Props are a subset of ShowTab props** — no inputs, monitors, stage plot, or print sections. This keeps the component focused.
+**Props are a subset of MixTab props** — no inputs, monitors, stage plot, or print sections. This keeps the component focused.
 
 ### Inline chart viewer integration
 
-The existing chart viewer (`loadPdfDoc`, `renderPage`, etc.) is already decoupled from the Show tab. The Perform tab calls the same functions on song tap. No viewer changes needed.
+The existing chart viewer (`loadPdfDoc`, `renderPage`, etc.) is already decoupled from the Mix tab. The Perform tab calls the same functions on song tap. No viewer changes needed.
 
 ### No new dependencies
 
@@ -192,7 +198,7 @@ Zero npm additions.
 - Tap current song again → highlight removed
 - Refresh page → current song restored from sessionStorage
 - Open shared slug (non-owner) → defaults to Perform tab
-- Open as owner → defaults to Perform tab, can switch to Show/Setup/AI
+- Open as owner → defaults to Perform tab, can switch to Mix/Config/AI
 - Verify on iPad Safari (primary use case) — touch targets large enough, no layout issues
 - Verify dark mode readability on stage (dim room test)
 
