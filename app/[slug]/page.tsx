@@ -588,7 +588,7 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
 
         {/* Setlist */}
         {setlist.length === 0 ? (
-          <p className="text-zinc-500 text-center py-12">No setlist yet. Set up your show in the Config tab.</p>
+          <p className="text-zinc-500 text-center py-12">No setlist yet.</p>
         ) : (
           <div className="space-y-1">
             {setlist.map((song, idx) => {

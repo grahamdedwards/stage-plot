@@ -137,9 +137,10 @@ Extract a new `PerformTab` component following the same pattern as `MixTab` (cur
   2. Rename `ShowTab` → `MixTab`, `SetupTab` → `ConfigTab` (component names + tab labels)
   3. Default tab changes from `'show'` to `'perform'`
   4. Add Perform tab button to the tab bar (first position)
-  5. Add `PerformTab` component (renders setlist with chart pills and role selector)
-  6. Lift `navigatorSongIdx` and chart viewer state from `MixTab` up to the parent `Page` component, passing an `onOpenChart` callback to both `MixTab` and `PerformTab` (avoids duplicating chart viewer state/rendering)
-  7. For non-owner slug views: default to `'perform'` instead of `'mix'`
+  5. Add `PerformTab` component (renders setlist with chart pills, role selector, and its own ChartNavigator overlay)
+  6. For non-owner slug views: default to `'perform'` instead of `'mix'`
+
+Note: each tab manages its own `navigatorSongIdx` and `ChartNavigator` instance. Since only one tab renders at a time, there is no duplication risk or drift — the inactive tab's state is unmounted. Lifting state to `Page` would add prop-drilling complexity for no user-visible benefit.
 
 ### Component: PerformTab
 
@@ -147,23 +148,18 @@ Extract a new `PerformTab` component following the same pattern as `MixTab` (cur
 function PerformTab({
   setlist,
   showInfo,
-  onOpenChart,
-}: {
-  setlist: SetlistSong[];
-  showInfo: AppConfig['showInfo'];
-  onOpenChart: (songIdx: number) => void;
 }) {
   // role selector (compact pills in header)
   // setlist rendering (large rows, key pills, lead colors, chart pills)
-  // chart pill tap → onOpenChart(songIdx)
+  // chart button tap → open ChartNavigator overlay
 }
 ```
 
-**Props are a subset of MixTab props** — no inputs, monitors, stage plot, or print sections. Chart viewer rendering stays in the parent; PerformTab just triggers it via callback.
+**Props are a subset of MixTab props** — no inputs, monitors, stage plot, or print sections.
 
 ### Inline chart viewer integration
 
-The chart viewer (`loadPdfDoc`, `renderPage`, etc.) is already decoupled from any specific tab. The architectural change is lifting `navigatorSongIdx` state from `MixTab` to `Page` so both tabs can trigger the same viewer overlay. The viewer itself and its pdf.js infrastructure need no changes.
+The chart viewer (`loadPdfDoc`, `renderPage`, etc.) is already decoupled from any specific tab. Each tab manages its own `navigatorSongIdx` state and renders its own `ChartNavigator` overlay. Since React unmounts the inactive tab, there is no state duplication at runtime.
 
 ### No new dependencies
 
@@ -198,7 +194,7 @@ No new gesture patterns. Every interaction reuses an existing component and beha
 
 - Confirm Perform tab renders setlist from config
 - Confirm role selector filters chart pills
-- Confirm chart viewer opens from Perform tab via lifted `onOpenChart` callback
+- Confirm chart viewer opens from Perform tab via chart button tap
 
 ## Future Considerations
 
