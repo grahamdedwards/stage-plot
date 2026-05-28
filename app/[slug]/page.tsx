@@ -228,7 +228,7 @@ export default function Page() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // ── Check auth state independently (not gated on show load) ─────────
+  // ── Check auth state + subscribe to changes (sign-out, token expiry) ──
   useEffect(() => {
     const supabase = getSupabaseBrowser();
     supabase.auth.getUser().then(({ data }: { data: { user: unknown } }) => {
@@ -237,6 +237,13 @@ export default function Page() {
     }).catch(() => {
       setAuthChecked(true);
     });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: { user: unknown } | null) => {
+      setIsAuthenticated(!!session?.user);
+      setAuthChecked(true);
+    });
+
+    return () => { subscription.unsubscribe(); };
   }, []);
 
   // ── Load show from Supabase on mount ─────────────────────────────────
@@ -288,10 +295,11 @@ export default function Page() {
             .single();
 
           if (show) {
-            setShowId(show.id);
+            let owner = false;
+            let editor = false;
             if (show.owner_id === user.id) {
-              setIsOwner(true);
-              setIsEditor(true);
+              owner = true;
+              editor = true;
             } else {
               const { data: collab } = await supabase
                 .from('show_collaborators')
@@ -300,8 +308,12 @@ export default function Page() {
                 .eq('user_id', user.id)
                 .single();
 
-              if (collab?.role === 'editor') setIsEditor(true);
+              if (collab?.role === 'editor') editor = true;
             }
+            // Set all three together to avoid isReadOnly flash
+            setIsOwner(owner);
+            setIsEditor(editor);
+            setShowId(show.id);
           }
         }
       })
