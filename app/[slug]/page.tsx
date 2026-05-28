@@ -1226,16 +1226,7 @@ function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken
 // CHART NAVIGATOR — inline PDF viewer with page controls
 // ════════════════════════════════════════════════════════════════════════════
 
-const ROLE_COLORS: Record<string, string> = {
-  'Lyrics': 'bg-purple-100 text-purple-800',
-  'Guitar': 'bg-red-100 text-red-800',
-  'Bass': 'bg-green-100 text-green-800',
-  'Piano / Keys': 'bg-blue-100 text-blue-800',
-  'Horns': 'bg-yellow-100 text-yellow-800',
-  'Drums': 'bg-orange-100 text-orange-800',
-  'Conductor': 'bg-gray-100 text-gray-800',
-  'Other': 'bg-gray-100 text-gray-600',
-};
+// Role colors removed — chart pill picker now uses active/inactive pattern
 
 function ChartNavigator({
   setlist, currentIdx, roleFilter, allRoles, isOffline, accessToken, onChangeIdx, onChangeRole, onClose,
@@ -1408,26 +1399,26 @@ function ChartNavigator({
   }, [currentIdx, setlist.length, pageNum, numPages, onChangeIdx]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+    <div className="fixed inset-0 z-50 bg-zinc-950 text-zinc-100 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-gray-50">
-        <button onClick={onClose} className="text-sm font-bold text-gray-600 hover:text-black">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900">
+        <button onClick={onClose} className="text-sm font-bold text-zinc-400 hover:text-white">
           &larr; Back
         </button>
         <div className="text-center flex-1 px-2">
           <p className="text-sm font-bold truncate">{song.title}</p>
-          <p className="text-[10px] text-gray-400">Song {currentIdx + 1} of {setlist.length}</p>
+          <p className="text-[10px] text-zinc-500">Song {currentIdx + 1} of {setlist.length}</p>
         </div>
         <div className="flex items-center gap-2">
           {isOffline && (
-            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded">
+            <span className="px-2 py-0.5 bg-amber-900 text-amber-300 text-[10px] font-bold rounded">
               OFFLINE
             </span>
           )}
           <select
             value={roleFilter}
             onChange={(e) => onChangeRole(e.target.value)}
-            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+            className="text-xs border border-zinc-700 rounded px-2 py-1 bg-zinc-800 text-zinc-200"
           >
             <option value="all">All Parts</option>
             {allRoles.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -1437,45 +1428,44 @@ function ChartNavigator({
 
       {/* Chart pill picker (multi-chart) */}
       {charts.length > 1 && (
-        <div className="flex items-center gap-1 px-4 py-2 border-b bg-gray-50 overflow-x-auto">
-          {charts.map((c, i) => {
-            const color = ROLE_COLORS[c.role] ?? 'bg-gray-100 text-gray-700';
-            return (
-              <button
-                key={`${c.role}-${c.fileId}`}
-                onClick={() => { setActiveChartIdx(i); setPageNum(1); }}
-                className={`px-2 py-1 rounded text-xs font-bold shrink-0 transition-colors ${
-                  i === activeChartIdx ? `${color} ring-2 ring-black` : `${color} opacity-50 hover:opacity-75`
-                }`}
-              >
-                {c.role}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800 bg-zinc-900 overflow-x-auto">
+          {charts.map((c, i) => (
+            <button
+              key={`${c.role}-${c.fileId}`}
+              onClick={() => { setActiveChartIdx(i); setPageNum(1); }}
+              className={`px-2 py-1 rounded text-xs font-bold shrink-0 transition-colors ${
+                i === activeChartIdx
+                  ? 'bg-white text-black'
+                  : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              {c.role}
+            </button>
+          ))}
         </div>
       )}
 
       {/* PDF viewer */}
-      <div ref={containerRef} className="flex-1 flex items-center justify-center bg-gray-100 overflow-hidden relative">
+      <div ref={containerRef} className="flex-1 flex items-center justify-center bg-zinc-900 overflow-hidden relative">
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-            <p className="text-sm text-gray-400 animate-pulse">Loading chart...</p>
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 z-10">
+            <p className="text-sm text-zinc-400 animate-pulse">Loading chart...</p>
           </div>
         )}
         {charts.length === 0 ? (
-          <div className="text-gray-400 text-sm italic">
+          <div className="text-zinc-500 text-sm italic">
             {roleFilter !== 'all'
               ? `No ${roleFilter} chart for this song`
               : 'No charts for this song'}
           </div>
         ) : activeChart && !activeChart.fileId ? (
           <div className="text-center space-y-3">
-            <p className="text-sm text-gray-500">This chart can only be viewed externally</p>
+            <p className="text-sm text-zinc-400">This chart can only be viewed externally</p>
             <a
               href={activeChart.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block px-4 py-2 text-sm font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+              className="inline-block px-4 py-2 text-sm font-bold bg-white text-black rounded hover:bg-zinc-200 transition-colors"
             >
               Open {activeChart.role} Chart &rarr;
             </a>
@@ -1487,24 +1477,24 @@ function ChartNavigator({
 
       {/* Page indicator */}
       {numPages > 1 && (
-        <div className="text-center py-1 text-xs text-gray-400 bg-white border-t">
-          Page {pageNum} of {numPages}
+        <div className="text-center py-1 text-xs text-zinc-500 bg-zinc-900 border-t border-zinc-800">
+          Page {pageNum} of {numPages} &middot; tap left/right on chart to turn
         </div>
       )}
 
       {/* Prev / Next Song */}
-      <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+      <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800 bg-zinc-900">
         <button
           onClick={() => onChangeIdx(currentIdx - 1)}
           disabled={currentIdx === 0}
-          className="px-4 py-2 text-sm font-bold rounded bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="px-4 py-2 text-sm font-bold rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           &larr; Prev
         </button>
         <button
           onClick={() => onChangeIdx(currentIdx + 1)}
           disabled={currentIdx >= setlist.length - 1}
-          className="px-4 py-2 text-sm font-bold rounded bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="px-4 py-2 text-sm font-bold rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Next &rarr;
         </button>
