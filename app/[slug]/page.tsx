@@ -518,11 +518,6 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
   accessToken?: string;
   slug: string;
 }) {
-  const colorMap = new Map<string, string>();
-  setlist.forEach((s) => {
-    s.lead.split('+').map((n) => n.trim()).forEach((n) => getSingerColor(n, colorMap));
-  });
-
   // Role filter (per-show, slug-scoped)
   const roleKey = `showrunr-role-filter-${slug}`;
   const [roleFilter, setRoleFilter] = useState<string>(() => {
@@ -592,50 +587,37 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
         {setlist.length === 0 ? (
           <p className="text-zinc-500 text-center py-12">No setlist yet.</p>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {setlist.map((song, idx) => {
-              const singers = song.lead.split('+').map((n) => n.trim());
               const songCharts = (song.charts ?? []).filter(
                 (c) => effectiveRoleFilter === 'all' || c.role === effectiveRoleFilter
               );
               return (
                 <div
                   key={song.id ?? song.position}
-                  className="flex items-start gap-3 px-3 py-3 rounded-lg hover:bg-zinc-900 transition-colors"
+                  className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-zinc-900 active:bg-zinc-800 transition-colors"
                 >
-                  <span className="text-zinc-500 font-mono text-sm w-6 text-right flex-shrink-0 pt-0.5">
-                    {song.position}
+                  <span className="text-zinc-600 font-mono text-sm w-7 text-right flex-shrink-0">
+                    {song.position}.
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-base truncate">{song.title}</span>
-                      {song.key && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-semibold border border-zinc-700 flex-shrink-0">
-                          {song.key}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <div className="flex flex-wrap gap-1">
-                        {singers.map((singer) => (
-                          <span key={singer} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${getSingerColor(singer, colorMap)}`}>
-                            {singer}
-                          </span>
-                        ))}
-                      </div>
-                      {song.notes && (
-                        <span className="text-xs text-zinc-500 italic truncate">{song.notes}</span>
-                      )}
-                    </div>
+                    <span className="font-bold text-lg leading-tight">{song.title}</span>
+                    {song.notes && (
+                      <span className="block text-xs text-zinc-500 italic mt-0.5 truncate">{song.notes}</span>
+                    )}
                   </div>
-                  {/* Chart button */}
+                  {song.key && (
+                    <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-bold border border-zinc-700 flex-shrink-0">
+                      {song.key}
+                    </span>
+                  )}
                   {songCharts.length > 0 && (
                     <button
                       onClick={() => setNavigatorSongIdx(idx)}
-                      className="w-8 h-8 flex items-center justify-center rounded bg-zinc-800 text-blue-400 hover:bg-zinc-700 transition-colors flex-shrink-0"
+                      className="w-10 h-10 flex items-center justify-center rounded-lg bg-zinc-800 text-blue-400 hover:bg-zinc-700 active:bg-zinc-600 transition-colors flex-shrink-0"
                       title={`${songCharts.length} chart${songCharts.length > 1 ? 's' : ''}`}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
                       </svg>
                     </button>
