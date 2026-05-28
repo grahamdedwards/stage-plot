@@ -4,11 +4,11 @@
 
 Engineers receive a stage plot (PDF or ShowRunr link) and manually re-key every input channel into their mixing console. A 40-channel show = 40 manual entries before soundcheck. This is slow, error-prone, and repeated at every venue on a tour.
 
-ShowRunr already has structured input list data (channel, instrument, mic, stand, notes) and monitor mix assignments. Exporting this in a format consoles can import eliminates the re-keying step entirely.
+ShowRunr already has structured input list data (channel, instrument, mic, stand, notes). Exporting this in a format consoles can import eliminates the re-keying step entirely.
 
 ## Goal
 
-One-click export of the input list and monitor mixes to standard formats that mixing consoles can import. The engineer loads the file, the patch list appears on the desk, soundcheck starts faster.
+One-click export of the input/patch list to CSV (universal console import) and XML (structured, transformable). The engineer loads the file, the patch list appears on the desk, soundcheck starts faster.
 
 ## Scope — Tiered Approach
 
@@ -61,17 +61,6 @@ interface InputChannel {
 
 **Decision: defer phantom/stereoLink/directOut to a follow-up PR.** The CSV/XML export works with the current data model. These fields add value but aren't blockers.
 
-### Current MonitorMix (no changes needed)
-
-```typescript
-interface MonitorMix {
-  id?: string;
-  mix: number;       // mix bus number
-  name: string;      // who gets this mix (e.g., "Vocals", "Drummer")
-  needs: string;     // what they want in the mix
-}
-```
-
 ## Export Formats
 
 ### 1. CSV Export
@@ -87,11 +76,10 @@ interface MonitorMix {
 | `Mic` | `mic` | Microphone model |
 | `Stand` | `stand` | Stand type |
 | `Notes` | `notes` | Free-text |
-| `MonitorMix` | Derived | Mix number this channel is associated with (from stage plot slot → mix number) |
 
 **Format rules:**
 - UTF-8 with BOM (Excel and console software handle this correctly)
-- Fields containing commas, quotes, or newlines are double-quoted per RFC 4180
+- Fields containing commas, double quotes, or newlines are double-quoted, and any double quotes inside the field are escaped by doubling them (e.g., `"` becomes `""`) per RFC 4180
 - Header row always present
 - Empty fields = empty string (not "null" or "N/A")
 - Sorted by channel number ascending
@@ -99,62 +87,45 @@ interface MonitorMix {
 **Example output:**
 
 ```csv
-Channel,Name,Mic,Stand,Notes,MonitorMix
-1,Kick In,Beta 91A,Internal,,1
-2,Kick Out,Beta 52A,Short Boom,,1
-3,Snare Top,SM57,Clip,,1
-4,Snare Bottom,SM57,Clip,Phase flip,1
-5,Hi-Hat,KSM137,Short Boom,,1
-6,Rack Tom,e604,Clip,,1
-7,Floor Tom,e604,Clip,,1
-8,OH L,KSM32,Tall Boom,Stereo pair w/ ch9,1
-9,OH R,KSM32,Tall Boom,Stereo pair w/ ch8,1
-10,Bass DI,Radial J48,DI,,2
-11,Bass Amp,RE20,Short Boom,,2
-12,Guitar L,SM57,Short Boom,,3
+Channel,Name,Mic,Stand,Notes
+1,Kick In,Beta 91A,Internal,
+2,Kick Out,Beta 52A,Short Boom,
+3,Snare Top,SM57,Clip,
+4,Snare Bottom,SM57,Clip,Phase flip
+5,Hi-Hat,KSM137,Short Boom,
+6,Rack Tom,e604,Clip,
+7,Floor Tom,e604,Clip,
+8,OH L,KSM32,Tall Boom,Stereo pair w/ ch9
+9,OH R,KSM32,Tall Boom,Stereo pair w/ ch8
+10,Bass DI,Radial J48,DI,
+11,Bass Amp,RE20,Short Boom,
+12,Guitar L,SM57,Short Boom,
 ```
 
 ### 2. XML Export
 
 **Filename:** `{show-slug}-patch.xml`
 
-**Schema:** Custom `showrunr/v1` — not tied to any single console vendor. Provides structured data that can be transformed to vendor-specific formats later.
+**Schema:** Custom `showrunr/v1` — a structured intermediate format, not tied to any single console vendor. Useful for tooling, XSLT transforms to vendor formats, or programmatic consumption. Not a direct console import format (CSV is the direct import path).
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <showrunr-patch version="1" show="Band Name" date="2026-06-15" venue="The Fillmore">
   <inputs>
-    <channel number="1" name="Kick In" mic="Beta 91A" stand="Internal" monitor-mix="1" />
-    <channel number="2" name="Kick Out" mic="Beta 52A" stand="Short Boom" monitor-mix="1" />
-    <channel number="3" name="Snare Top" mic="SM57" stand="Clip" monitor-mix="1" />
+    <channel number="1" name="Kick In" mic="Beta 91A" stand="Internal" />
+    <channel number="2" name="Kick Out" mic="Beta 52A" stand="Short Boom" />
+    <channel number="3" name="Snare Top" mic="SM57" stand="Clip" />
+    <channel number="4" name="Snare Bottom" mic="SM57" stand="Clip" notes="Phase flip" />
     <!-- ... -->
   </inputs>
-  <monitors>
-    <mix number="1" name="Drums" needs="Click, keys, vocal" />
-    <mix number="2" name="Bass" needs="Kick, snare, vocal, keys" />
-    <mix number="3" name="Guitar" needs="Vocal, drums, bass" />
-  </monitors>
 </showrunr-patch>
 ```
 
 **XML rules:**
 - UTF-8, XML declaration present
-- All special characters escaped (`&amp;`, `&lt;`, `&gt;`, `&quot;`)
+- All special characters escaped (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`)
 - Attributes preferred over child elements for flat data (keeps it compact)
 - Optional fields omitted when empty (no `notes=""`)
-- `monitor-mix` attribute derived from stage plot slot → mix number mapping
-
-### Monitor mix association
-
-The link between an input channel and a monitor mix is indirect in the current data model: `StageSlot.mix` assigns a stage position to a mix number, and `InputChannel` has a channel number but no explicit mix reference.
-
-**Derivation strategy:**
-1. Build a map: `mix number → stage position` from `stagePlot` array
-2. For each input channel, attempt to match `inst` against slot `name` or `role` (fuzzy — best effort)
-3. If a match is found, include the mix number in the export
-4. If no match, leave `MonitorMix` empty — the engineer assigns it manually
-
-This is a best-effort enrichment. The export is useful even without it (the primary value is the channel/name/mic patch list).
 
 ## UX Flow
 
@@ -183,7 +154,7 @@ Or, if we want to keep it cleaner — a single dropdown:
 ### Export action
 
 1. User clicks "Export Patch List (.csv)" or "Export Patch List (.xml)"
-2. Build export data from current `config.inputs` and `config.monitors`
+2. Build export data from current `config.inputs` and `config.showInfo` (for XML metadata)
 3. Generate file content (CSV string or XML string)
 4. Trigger browser download via `<a>` blob URL (same pattern as YAML export)
 5. Filename: `{slugified-show-name}-patch.csv` or `.xml`
@@ -198,7 +169,9 @@ Or, if we want to keep it cleaner — a single dropdown:
 
 ### Files to create
 
-- `lib/console-export.ts` — pure functions: `exportPatchCsv(config)` and `exportPatchXml(config)` returning strings
+- `lib/console-export.ts` — pure functions:
+  - `exportPatchCsv(inputs: InputChannel[]): string`
+  - `exportPatchXml(inputs: InputChannel[], showInfo: { bandName: string; eventDate: string; venue: string }): string`
 
 ### Files to modify
 
@@ -229,7 +202,8 @@ Zero npm additions.
 
 ## Future Considerations
 
-- **Yamaha CL/QL `.clf` export:** The XML export provides the data foundation. A `.clf` file is XML with a specific schema — adding a `exportYamahaCLF(config)` function later is straightforward.
+- **Yamaha CL/QL `.clf` export:** The XML export provides the data foundation. A `.clf` file is XML with a specific schema — adding an `exportYamahaCLF()` function later is straightforward.
 - **Phantom power / stereo link fields:** When added to `InputChannel`, the export functions pick them up with minimal changes (new CSV column, new XML attribute).
-- **Round-trip import:** Loading a CSV/XML patch file back into ShowRunr. Useful for "I started my patch on the desk, now I want it in ShowRunr." Separate spec.
+- **Monitor mix column:** Could be added to CSV/XML later if the data model gains an explicit channel→mix link. Deliberately omitted from Tier 1 — monitor routing is 4-8 labels that engineers set up as part of the mix anyway.
+- **Round-trip import:** Loading a CSV/XML patch file back into ShowRunr. Separate spec.
 - **Console-specific CSV dialects:** Some desks want specific column headers (DiGiCo uses "Channel", "Label", etc.). We can add format variants as users report them.
