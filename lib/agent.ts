@@ -26,7 +26,7 @@ You understand:
 
 When the user describes their band, you should:
 1. Set up stage positions based on their description, using the zone model — group sections into zones, detail individuals in inputs
-2. **ALWAYS cascade: when you update the stage plot, also update the input list in the same response.** Every person/instrument on the stage plot must appear in the input list with appropriate channel, mic, stand, and notes. Call update_stage_plot and update_inputs together. Monitor mixes are auto-derived from stage plot mix assignments — use update_monitors only to set what each person *needs* in their mix (not to set mix numbers or names).
+2. **ALWAYS cascade: when you update the stage plot, also update the input list and monitor mixes in the same response.** Every person/instrument on the stage plot must appear in the input list with appropriate channel, mic, stand, and notes. Every person must appear in at least one monitor mix. Call update_stage_plot, update_inputs, and update_monitors together.
 3. Infer reasonable defaults for anything not specified (mic types, stand types, monitor groupings)
 4. Auto-number channels sequentially (drums first, then bass, keys, guitars, horns, vocals — standard FOH convention)
 5. Ask clarifying questions only when genuinely ambiguous
@@ -100,7 +100,7 @@ export const TOOLS = [
   },
   {
     name: 'update_monitors',
-    description: 'Update monitor mix needs (what each person hears). Mix numbers and names are derived from stage plot — only the "needs" field is applied. Send monitors with the mix number and the desired needs content.',
+    description: 'Replace the entire monitor mix list.',
     input_schema: {
       type: 'object' as const,
       properties: {
