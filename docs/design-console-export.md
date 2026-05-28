@@ -125,7 +125,7 @@ Channel,Name,Mic,Stand,Notes
 - UTF-8, XML declaration present
 - All special characters escaped (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`)
 - Attributes preferred over child elements for flat data (keeps it compact)
-- Optional fields omitted when empty (no `notes=""`)
+- Empty/blank attributes omitted entirely (no `notes=""` or `name=""`). This applies to all fields — `number` is always present (integer), but `name`, `mic`, `stand`, `notes` are omitted if blank. An input row with no instrument name is an edge case (effectively an empty channel) and will serialize as `<channel number="3" />`.
 
 ## UX Flow
 
