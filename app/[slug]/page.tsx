@@ -226,6 +226,18 @@ export default function Page() {
 
   const { context: showContext, saveConfig } = useShow(showId, slug, isOwner, isEditor);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // ── Check auth state independently (not gated on show load) ─────────
+  useEffect(() => {
+    const supabase = getSupabaseBrowser();
+    supabase.auth.getUser().then(({ data }: { data: { user: unknown } }) => {
+      setIsAuthenticated(!!data.user);
+      setAuthChecked(true);
+    }).catch(() => {
+      setAuthChecked(true);
+    });
+  }, []);
 
   // ── Load show from Supabase on mount ─────────────────────────────────
   useEffect(() => {
@@ -265,12 +277,10 @@ export default function Page() {
 
         setConfig(cfg);
 
-        // Check ownership/editor status
+        // Check ownership/editor status (requires auth)
         const supabase = getSupabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
-        setIsAuthenticated(!!user);
         if (user) {
-          // Check if owner
           const { data: show } = await supabase
             .from('shows')
             .select('id, owner_id')
@@ -283,7 +293,6 @@ export default function Page() {
               setIsOwner(true);
               setIsEditor(true);
             } else {
-              // Check if collaborator
               const { data: collab } = await supabase
                 .from('show_collaborators')
                 .select('role')
@@ -342,7 +351,7 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
       {/* ── Auth / save status banner ────────────────────────────────── */}
-      {!isAuthenticated && !loadError && (
+      {authChecked && !isAuthenticated && !loadError && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
           Not signed in — changes won&apos;t be saved.{' '}
           <Link href="/sign-in" className="underline font-semibold hover:text-amber-900">Sign in</Link>
@@ -435,8 +444,8 @@ export default function Page() {
             )}
           </button>
           {/* Save status */}
-          {isOwner && (
-            <span className={`text-[10px] font-medium px-2 py-1 rounded mr-1 flex-shrink-0 ${
+          {(isOwner || isEditor) && (
+            <span role="status" aria-live="polite" className={`text-[10px] font-medium px-2 py-1 rounded mr-1 flex-shrink-0 ${
               showContext.saving
                 ? 'text-amber-600 bg-amber-50'
                 : showContext.lastSavedAt
@@ -562,16 +571,24 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Header */}
         <header className="mb-6">
-          <h1 className="text-2xl font-black tracking-tight">
-            {showInfo.showName || showInfo.bandName}
-          </h1>
+          {showInfo.showName ? (
+            <h1 className="text-2xl font-black tracking-tight">{showInfo.showName}</h1>
+          ) : (
+            <h1 className="text-2xl font-black tracking-tight">
+              {showInfo.venue || showInfo.eventDate
+                ? [showInfo.venue, showInfo.eventDate].filter(Boolean).join(' · ')
+                : 'Setlist'}
+            </h1>
+          )}
           <div className="flex items-center justify-between mt-1">
-            <p className="text-sm text-zinc-400">
-              {showInfo.venue && showInfo.eventDate
-                ? `${showInfo.venue} · ${showInfo.eventDate}`
-                : showInfo.venue || showInfo.eventDate || ''}
-            </p>
-            <p className="text-sm text-zinc-500">{setlist.length} songs</p>
+            {showInfo.showName && (
+              <p className="text-sm text-zinc-400">
+                {showInfo.venue && showInfo.eventDate
+                  ? `${showInfo.venue} · ${showInfo.eventDate}`
+                  : showInfo.venue || showInfo.eventDate || ''}
+              </p>
+            )}
+            <p className="text-sm text-zinc-500 ml-auto">{setlist.length} songs</p>
           </div>
           {/* Role selector */}
           {allRoles.length > 0 && (
@@ -3196,26 +3213,30 @@ function ConfigTab({
                 for (const r of roles) { if (nameLower.includes(r.toLowerCase())) { detected = r; break; } }
                 const role = prompt(`Chart role for "${songTitle}":`, detected);
                 if (!role) return;
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('song_title', songTitle);
-                formData.append('role', role);
-                const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
-                if (res.ok) {
-                  const chart = await res.json();
-                  updateConfig((prev) => ({
-                    ...prev,
-                    setlist: prev.setlist.map((s) =>
-                      s.title === songTitle
-                        ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
-                        : s
-                    ),
-                  }));
-                } else {
-                  const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-                  alert(res.status === 401
-                    ? 'Chart upload failed — you need to sign in first.'
-                    : `Chart upload failed: ${err.error || 'Unknown error'}`);
+                try {
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  formData.append('song_title', songTitle);
+                  formData.append('role', role);
+                  const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
+                  if (res.ok) {
+                    const chart = await res.json();
+                    updateConfig((prev) => ({
+                      ...prev,
+                      setlist: prev.setlist.map((s) =>
+                        s.title === songTitle
+                          ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
+                          : s
+                      ),
+                    }));
+                  } else {
+                    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+                    alert(res.status === 401
+                      ? 'Chart upload failed — you need to sign in first.'
+                      : `Chart upload failed: ${err.error || 'Unknown error'}`);
+                  }
+                } catch {
+                  alert('Chart upload failed — network error.');
                 }
               };
               input.click();
