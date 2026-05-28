@@ -224,7 +224,27 @@ export default function Page() {
   const [isEditor, setIsEditor] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  const { saveConfig } = useShow(showId, slug, isOwner, isEditor);
+  const { context: showContext, saveConfig } = useShow(showId, slug, isOwner, isEditor);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // ── Check auth state + subscribe to changes (sign-out, token expiry) ──
+  useEffect(() => {
+    const supabase = getSupabaseBrowser();
+    supabase.auth.getUser().then(({ data }: { data: { user: unknown } }) => {
+      setIsAuthenticated(!!data.user);
+      setAuthChecked(true);
+    }).catch(() => {
+      setAuthChecked(true);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: { user: unknown } | null) => {
+      setIsAuthenticated(!!session?.user);
+      setAuthChecked(true);
+    });
+
+    return () => { subscription.unsubscribe(); };
+  }, []);
 
   // ── Load show from Supabase on mount ─────────────────────────────────
   useEffect(() => {
@@ -264,11 +284,10 @@ export default function Page() {
 
         setConfig(cfg);
 
-        // Check ownership/editor status
+        // Check ownership/editor status (requires auth)
         const supabase = getSupabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          // Check if owner
           const { data: show } = await supabase
             .from('shows')
             .select('id, owner_id')
@@ -276,12 +295,12 @@ export default function Page() {
             .single();
 
           if (show) {
-            setShowId(show.id);
+            let owner = false;
+            let editor = false;
             if (show.owner_id === user.id) {
-              setIsOwner(true);
-              setIsEditor(true);
+              owner = true;
+              editor = true;
             } else {
-              // Check if collaborator
               const { data: collab } = await supabase
                 .from('show_collaborators')
                 .select('role')
@@ -289,8 +308,12 @@ export default function Page() {
                 .eq('user_id', user.id)
                 .single();
 
-              if (collab?.role === 'editor') setIsEditor(true);
+              if (collab?.role === 'editor') editor = true;
             }
+            // Set all three together to avoid isReadOnly flash
+            setIsOwner(owner);
+            setIsEditor(editor);
+            setShowId(show.id);
           }
         }
       })
@@ -339,16 +362,22 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      {/* ── Read-only banner ──────────────────────────────────────────── */}
-      {isReadOnly && showId && (
+      {/* ── Auth / save status banner ────────────────────────────────── */}
+      {authChecked && !isAuthenticated && !loadError && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
-          Viewing in read-only mode. Sign in to edit.
+          Not signed in — changes won&apos;t be saved.{' '}
+          <Link href="/sign-in" className="underline font-semibold hover:text-amber-900">Sign in</Link>
+        </div>
+      )}
+      {isAuthenticated && isReadOnly && showId && (
+        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-center text-sm text-blue-800">
+          Viewing as collaborator (read-only).
         </div>
       )}
       {/* ── Tab Bar ─────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-10 bg-white border-b shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center">
-          {isOwner && (
+          {isAuthenticated && (
             <Link href="/dashboard" className="px-3 py-3 text-gray-400 hover:text-black transition-colors" title="My Shows">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -426,6 +455,18 @@ export default function Page() {
               </svg>
             )}
           </button>
+          {/* Save status */}
+          {(isOwner || isEditor) && (
+            <span role="status" aria-live="polite" className={`text-[10px] font-medium px-2 py-1 rounded mr-1 flex-shrink-0 ${
+              showContext.saving
+                ? 'text-amber-600 bg-amber-50'
+                : showContext.lastSavedAt
+                  ? 'text-green-600 bg-green-50'
+                  : 'text-gray-400'
+            }`}>
+              {showContext.saving ? 'Saving...' : showContext.lastSavedAt ? 'Saved' : ''}
+            </span>
+          )}
         </div>
       </div>
 
@@ -542,16 +583,24 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Header */}
         <header className="mb-6">
-          <h1 className="text-2xl font-black tracking-tight">
-            {showInfo.showName || showInfo.bandName}
-          </h1>
+          {showInfo.showName ? (
+            <h1 className="text-2xl font-black tracking-tight">{showInfo.showName}</h1>
+          ) : (
+            <h1 className="text-2xl font-black tracking-tight">
+              {showInfo.venue || showInfo.eventDate
+                ? [showInfo.venue, showInfo.eventDate].filter(Boolean).join(' · ')
+                : 'Setlist'}
+            </h1>
+          )}
           <div className="flex items-center justify-between mt-1">
-            <p className="text-sm text-zinc-400">
-              {showInfo.venue && showInfo.eventDate
-                ? `${showInfo.venue} · ${showInfo.eventDate}`
-                : showInfo.venue || showInfo.eventDate || ''}
-            </p>
-            <p className="text-sm text-zinc-500">{setlist.length} songs</p>
+            {showInfo.showName && (
+              <p className="text-sm text-zinc-400">
+                {showInfo.venue && showInfo.eventDate
+                  ? `${showInfo.venue} · ${showInfo.eventDate}`
+                  : showInfo.venue || showInfo.eventDate || ''}
+              </p>
+            )}
+            <p className="text-sm text-zinc-500 ml-auto">{setlist.length} songs</p>
           </div>
           {/* Role selector */}
           {allRoles.length > 0 && (
@@ -3176,21 +3225,30 @@ function ConfigTab({
                 for (const r of roles) { if (nameLower.includes(r.toLowerCase())) { detected = r; break; } }
                 const role = prompt(`Chart role for "${songTitle}":`, detected);
                 if (!role) return;
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('song_title', songTitle);
-                formData.append('role', role);
-                const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
-                if (res.ok) {
-                  const chart = await res.json();
-                  updateConfig((prev) => ({
-                    ...prev,
-                    setlist: prev.setlist.map((s) =>
-                      s.title === songTitle
-                        ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
-                        : s
-                    ),
-                  }));
+                try {
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  formData.append('song_title', songTitle);
+                  formData.append('role', role);
+                  const res = await fetch('/api/charts/upload', { method: 'POST', body: formData });
+                  if (res.ok) {
+                    const chart = await res.json();
+                    updateConfig((prev) => ({
+                      ...prev,
+                      setlist: prev.setlist.map((s) =>
+                        s.title === songTitle
+                          ? { ...s, charts: [...(s.charts || []).filter((c) => c.role !== chart.role), { role: chart.role, url: chart.url, fileId: chart.id, mimeType: chart.mime_type, modifiedTime: chart.updated_at, label: chart.file_name }] }
+                          : s
+                      ),
+                    }));
+                  } else {
+                    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+                    alert(res.status === 401
+                      ? 'Chart upload failed — you need to sign in first.'
+                      : `Chart upload failed: ${err.error || 'Unknown error'}`);
+                  }
+                } catch {
+                  alert('Chart upload failed — network error.');
                 }
               };
               input.click();
