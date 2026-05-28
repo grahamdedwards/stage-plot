@@ -3258,7 +3258,7 @@ function ConfigTab({
                 <li>Create (or pick) a folder in Drive for your charts. Copy the folder URL.</li>
                 <li>Paste it below and click <strong>Setup Chart Folders</strong> &mdash; the app creates the role subfolders for you.</li>
                 <li>Drop chart files into the matching role folder. Name files after the song (e.g., &ldquo;Superstition.pdf&rdquo; in <code className="text-xs bg-gray-100 px-1 rounded">Guitar/</code>).</li>
-                <li>On the <strong>Show</strong> tab, each song in the setlist gets a music-note icon. Tap it to see matched charts.</li>
+                <li>On the <strong>Mix</strong> tab, each song in the setlist gets a music-note icon. Tap it to see matched charts.</li>
               </ol>
             </div>
           </details>

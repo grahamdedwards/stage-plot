@@ -67,14 +67,14 @@ Full-height scrollable list. Each song row:
 - **Key** — pill badge, right-aligned (reuse existing key pill from Show tab)
 - **Lead singer(s)** — secondary text, color-coded (reuse `getSingerColor`)
 - **Notes** — secondary text, italic, truncated to 1 line
-- **Chart pills** — inline chart role pills (same as Mix tab, reuse existing component). Tap a pill to open the inline chart viewer.
+- **Chart button** — music-note icon button if charts are resolved for this song (filtered by active role). Tap to open the inline chart viewer.
 - **Scene note** — hidden in Perform view (engineer-only concern)
 
 #### Chart access
 
-- **Same interaction as Mix tab:** chart pills appear inline on each song row. Tap a pill → inline chart viewer opens (already built — PR #33-34).
-- This is not a new interaction model — it reuses the existing chart pill component and click handler from the Mix tab.
-- Role filter persists from sessionStorage-based role filter.
+- **Chart button per song row:** music-note icon button (same pattern as Mix tab). Tap → ChartNavigator overlay opens (already built — PR #33-34).
+- Role filter (set via header pills) determines which charts are shown — only matching-role charts appear in the navigator.
+- Role filter persists in sessionStorage (slug-scoped).
 
 #### Role selector
 
@@ -85,8 +85,8 @@ Full-height scrollable list. Each song row:
 
 #### Empty states
 
-- No setlist → "No setlist yet. Set up your show in the Config tab."
-- No charts resolved → song rows have no chart pills; no special empty state needed
+- No setlist → "No setlist yet."
+- No charts resolved → song rows have no chart button; no special empty state needed
 
 ### What Perform does NOT show
 
@@ -170,8 +170,8 @@ Zero npm additions.
 | CTA / interaction | Destination |
 |---|---|
 | Tap Perform tab | Show Perform view (setlist) |
-| Tap chart pill on song row | Open inline chart viewer for that role (existing behavior, same as Mix tab) |
-| Tap role selector pill | Filter chart pills to that role (sessionStorage-persisted) |
+| Tap chart button on song row | Open ChartNavigator overlay (existing behavior, same as Mix tab) |
+| Tap role selector pill | Filter which charts appear (sessionStorage-persisted) |
 | Swipe in chart viewer | Next/prev song chart (existing behavior) |
 | Back from chart viewer | Return to Perform setlist |
 
