@@ -42,12 +42,13 @@ Perform is first because it's the primary use case during a gig. The engineer sw
 
 ```
 Show Name or Band Name
-Venue · Date
-Song 3 of 12
+Venue · Date                    [All | Guitar | Lyrics | Keys]
+12 songs
 ```
 
 - Show name takes priority over band name (if set)
-- "Song X of Y" shows current position (defaults to song 1)
+- Song count as simple context
+- Role selector pills right-aligned in header (see Role selector section)
 - No lineup count, no stage plot thumbnail — those are engineer concerns
 
 #### Setlist (primary content)
@@ -65,27 +66,27 @@ Full-height scrollable list. Each song row:
 - **Song title** — large, bold, primary text
 - **Key** — pill badge, right-aligned (reuse existing key pill from Show tab)
 - **Lead singer(s)** — secondary text, color-coded (reuse `getSingerColor`)
-- **Notes** — secondary text, italic, truncated to 1 line (tap to expand)
-- **Chart indicator** — music note icon if charts are resolved for this song (reuse existing `♪` pattern)
+- **Notes** — secondary text, italic, truncated to 1 line
+- **Chart pills** — inline chart role pills (same as Mix tab, reuse existing component). Tap a pill to open the inline chart viewer.
 - **Scene note** — hidden in Perform view (engineer-only concern)
-
-#### Current song highlight
-
-- Tap a song to mark it as "now playing" — highlighted with a left border accent and subtle background
-- The current song sticks to a visible position (not necessarily top — the performer may want to see what's next)
-- Only one song is current at a time
-- Current song state is local (sessionStorage) — not persisted to the database or shared in real-time (that's a future WebSocket feature)
 
 #### Chart access
 
-- Tap a song row to open the inline chart viewer (already built — PR #33-34)
-- Behavior identical to Mix tab chart tap: if one chart for the active role, opens directly; if multiple, shows pill picker
-- Role filter persists from the existing sessionStorage-based role filter
+- **Same interaction as Mix tab:** chart pills appear inline on each song row. Tap a pill → inline chart viewer opens (already built — PR #33-34).
+- This is not a new interaction model — it reuses the existing chart pill component and click handler from the Mix tab.
+- Role filter persists from sessionStorage-based role filter.
+
+#### Role selector
+
+- Compact role/part picker in the Perform tab header (e.g., pill-style toggle: `All | Guitar | Lyrics | Keys`)
+- Populated from the roles present in the resolved charts
+- Sets the same sessionStorage role filter used by the chart pills and inline viewer
+- Performers on a shared slug need this — they can't switch to Config to change their role
 
 #### Empty states
 
 - No setlist → "No setlist yet. Set up your show in the Config tab."
-- No charts resolved → song rows have no music note; chart tap shows "No charts for this song"
+- No charts resolved → song rows have no chart pills; no special empty state needed
 
 ### What Perform does NOT show
 
@@ -117,12 +118,7 @@ The Perform tab is a pure view layer over existing data:
 
 ### New state
 
-```typescript
-// Local state in Perform tab component
-const [currentSongId, setCurrentSongId] = useState<string | null>(null);
-```
-
-Stored in `sessionStorage` under key `showrunr-current-song-{showId}` so it survives tab refresh but not session close.
+No new persisted state. The role filter already exists in sessionStorage (keyed by slug via `useParams()`, available synchronously on mount).
 
 ## Implementation Plan
 
@@ -141,8 +137,9 @@ Extract a new `PerformTab` component following the same pattern as `MixTab` (cur
   2. Rename `ShowTab` → `MixTab`, `SetupTab` → `ConfigTab` (component names + tab labels)
   3. Default tab changes from `'show'` to `'perform'`
   4. Add Perform tab button to the tab bar (first position)
-  5. Add `PerformTab` component (renders setlist, handles current-song, delegates to inline chart viewer)
-  6. For non-owner slug views: default to `'perform'` instead of `'mix'`
+  5. Add `PerformTab` component (renders setlist with chart pills and role selector)
+  6. Lift `navigatorSongIdx` and chart viewer state from `MixTab` up to the parent `Page` component, passing an `onOpenChart` callback to both `MixTab` and `PerformTab` (avoids duplicating chart viewer state/rendering)
+  7. For non-owner slug views: default to `'perform'` instead of `'mix'`
 
 ### Component: PerformTab
 
@@ -150,25 +147,23 @@ Extract a new `PerformTab` component following the same pattern as `MixTab` (cur
 function PerformTab({
   setlist,
   showInfo,
-  isOffline,
-  accessToken,
+  onOpenChart,
 }: {
   setlist: SetlistSong[];
   showInfo: AppConfig['showInfo'];
-  isOffline: boolean;
-  accessToken?: string;
+  onOpenChart: (songIdx: number) => void;
 }) {
-  // current song tracking (sessionStorage-backed)
-  // setlist rendering (large rows, key pills, lead colors)
-  // chart viewer integration (tap → open inline viewer)
+  // role selector (compact pills in header)
+  // setlist rendering (large rows, key pills, lead colors, chart pills)
+  // chart pill tap → onOpenChart(songIdx)
 }
 ```
 
-**Props are a subset of MixTab props** — no inputs, monitors, stage plot, or print sections. This keeps the component focused.
+**Props are a subset of MixTab props** — no inputs, monitors, stage plot, or print sections. Chart viewer rendering stays in the parent; PerformTab just triggers it via callback.
 
 ### Inline chart viewer integration
 
-The existing chart viewer (`loadPdfDoc`, `renderPage`, etc.) is already decoupled from the Mix tab. The Perform tab calls the same functions on song tap. No viewer changes needed.
+The chart viewer (`loadPdfDoc`, `renderPage`, etc.) is already decoupled from any specific tab. The architectural change is lifting `navigatorSongIdx` state from `MixTab` to `Page` so both tabs can trigger the same viewer overlay. The viewer itself and its pdf.js infrastructure need no changes.
 
 ### No new dependencies
 
@@ -179,38 +174,35 @@ Zero npm additions.
 | CTA / interaction | Destination |
 |---|---|
 | Tap Perform tab | Show Perform view (setlist) |
-| Tap song row | Open inline chart viewer (if charts exist) or mark as current song |
-| Tap song row (no charts) | Mark as current song |
-| Tap current song again | Unmark (deselect) |
+| Tap chart pill on song row | Open inline chart viewer for that role (existing behavior, same as Mix tab) |
+| Tap role selector pill | Filter chart pills to that role (sessionStorage-persisted) |
 | Swipe in chart viewer | Next/prev song chart (existing behavior) |
 | Back from chart viewer | Return to Perform setlist |
-| Role filter (existing) | Filters which charts are shown on tap (persisted in sessionStorage) |
 
-**Decision — tap behavior:** Since tap serves two purposes (mark current + open chart), resolve with: **short tap = mark current, long-press or tap chart icon = open chart viewer.** Alternative: tap always opens the chart viewer if charts exist, and a small "now" button on the left edge marks current. The simpler approach: **tap opens chart if charts exist; tap marks current if no charts. A dedicated "now playing" indicator button on the left edge.** This avoids gesture ambiguity.
+No new gesture patterns. Every interaction reuses an existing component and behavior from the Mix tab.
 
 ## Testing
 
 ### Manual
 
 - Open a show with 15+ songs → Perform tab → verify all songs visible, scrollable
-- Tap song with charts → inline viewer opens → swipe through songs → back returns to Perform
-- Tap song without charts → current song highlight appears
-- Tap current song again → highlight removed
-- Refresh page → current song restored from sessionStorage
-- Open shared slug (non-owner) → defaults to Perform tab
+- Tap chart pill → inline viewer opens → swipe through songs → back returns to Perform
+- Role selector → tap "Guitar" → only guitar chart pills shown → tap one → correct chart opens
+- Open shared slug (non-owner) → defaults to Perform tab, role selector works
 - Open as owner → defaults to Perform tab, can switch to Mix/Config/AI
+- Verify tab rename: "Mix" and "Config" labels appear correctly, all functionality unchanged
 - Verify on iPad Safari (primary use case) — touch targets large enough, no layout issues
 - Verify dark mode readability on stage (dim room test)
 
 ### Automated
 
 - Confirm Perform tab renders setlist from config
-- Confirm current-song state persists in sessionStorage
-- Confirm chart viewer opens on song tap when charts are resolved
+- Confirm role selector filters chart pills
+- Confirm chart viewer opens from Perform tab via lifted `onOpenChart` callback
 
 ## Future Considerations
 
-- **Real-time song sync:** When the MD taps "now playing," all connected Perform views follow. Requires WebSocket/Supabase Realtime. Separate spec — the local-only version ships first.
+- **Current-song tracking:** "Now playing" highlight with local state, then real-time sync via WebSocket/Supabase Realtime so all connected Perform views follow the MD. Deferred from v1 — low value without the sync layer.
 - **Tempo / click track display:** BPM per song, potentially with a tap-tempo widget. Useful for the drummer. Data model addition (`bpm?: number` on `SetlistSong`).
 - **Personal notes overlay:** Each performer adds their own notes per song (e.g., "watch for the ritard bar 32"). Requires per-user storage — ties into auth/role system.
 - **Setlist-only sharing:** Share just the Perform view (no patch list) — useful for sending to session musicians who don't need the full show file.
