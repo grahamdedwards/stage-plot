@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   DndContext,
   closestCenter,
@@ -44,7 +45,7 @@ import {
 import { loadPdfDoc, renderPage, destroyAllDocs, prefetchChart } from '@/lib/pdf-viewer';
 import { useShow } from '@/lib/use-show';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
-import { normalizeSongKeySafe, canonicalizeRole, displayRole } from '@/lib/normalize';
+import { normalizeSongKeySafe, displayRole } from '@/lib/normalize';
 import type { ChartRole } from '@/lib/normalize';
 
 // ─── Default band (imported at build time, used as fallback) ────────────────
@@ -348,11 +349,11 @@ export default function Page() {
       <div className="sticky top-0 z-10 bg-white border-b shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center">
           {isOwner && (
-            <a href="/dashboard" className="px-3 py-3 text-gray-400 hover:text-black transition-colors" title="My Shows">
+            <Link href="/dashboard" className="px-3 py-3 text-gray-400 hover:text-black transition-colors" title="My Shows">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
-            </a>
+            </Link>
           )}
           <button
             onClick={() => setTab('perform')}

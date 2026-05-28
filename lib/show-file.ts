@@ -41,10 +41,13 @@ export function serializeShow(config: AppConfig): string {
     venue: config.showInfo.venue || undefined,
     lineup: config.lineup || undefined,
     stagePlot: config.stagePlot,
-    inputs: config.inputs.map(({ id: _id, ...rest }) => rest),
-    monitors: config.monitors.map(({ id: _id, ...rest }) => rest),
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    inputs: config.inputs.map(({ id, ...rest }) => rest),
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    monitors: config.monitors.map(({ id, ...rest }) => rest),
     notes: config.notes,
-    setlist: config.setlist.map(({ id: _id, position: _pos, charts: _charts, ...rest }) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    setlist: config.setlist.map(({ id, position, charts, ...rest }) => {
       return rest as Omit<SetlistSong, 'id' | 'position'>;
     }),
   };
