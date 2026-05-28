@@ -118,7 +118,7 @@ The Perform tab is a pure view layer over existing data:
 
 ### New state
 
-No new persisted state. The role filter already exists in sessionStorage (keyed by slug via `useParams()`, available synchronously on mount).
+No new persisted state beyond the role filter. The current role filter uses a single global sessionStorage key (`stageplot-role-filter`). As part of this build, migrate it to a per-show key (`showrunr-role-filter-{slug}`) so the filter doesn't bleed across shows. `slug` is synchronous via `useParams()`.
 
 ## Implementation Plan
 
