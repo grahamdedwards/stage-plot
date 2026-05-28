@@ -32,6 +32,7 @@ import type {
 } from '@/lib/types';
 import { ensureSetlistSongIds, moveSetlistSong, ensureInputIds, moveInput, ensureMonitorIds, moveMonitor } from '@/lib/setlist';
 import { serializeShow, deserializeShow, slugify } from '@/lib/show-file';
+import { exportPatchCsv, exportPatchXml } from '@/lib/console-export';
 import {
   downloadAllCharts,
   getCacheStats,
@@ -3185,6 +3186,36 @@ function SetupTab({
               }}
             >
               Export Show (.yaml)
+            </button>
+            <button
+              className="px-4 py-2 text-sm font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors"
+              onClick={() => {
+                const csv = exportPatchCsv(config.inputs);
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${slugify(config.showInfo.showName || config.showInfo.bandName)}-patch.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Export Patch (.csv)
+            </button>
+            <button
+              className="px-4 py-2 text-sm font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors"
+              onClick={() => {
+                const xml = exportPatchXml(config.inputs, config.showInfo);
+                const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${slugify(config.showInfo.showName || config.showInfo.bandName)}-patch.xml`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Export Patch (.xml)
             </button>
             <label className="px-4 py-2 text-sm font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors cursor-pointer">
               Import Show
