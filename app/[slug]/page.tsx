@@ -224,7 +224,8 @@ export default function Page() {
   const [isEditor, setIsEditor] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  const { saveConfig } = useShow(showId, slug, isOwner, isEditor);
+  const { context: showContext, saveConfig } = useShow(showId, slug, isOwner, isEditor);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // ── Load show from Supabase on mount ─────────────────────────────────
   useEffect(() => {
@@ -267,6 +268,7 @@ export default function Page() {
         // Check ownership/editor status
         const supabase = getSupabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
+        setIsAuthenticated(!!user);
         if (user) {
           // Check if owner
           const { data: show } = await supabase
@@ -339,16 +341,22 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      {/* ── Read-only banner ──────────────────────────────────────────── */}
-      {isReadOnly && showId && (
+      {/* ── Auth / save status banner ────────────────────────────────── */}
+      {!isAuthenticated && !loadError && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
-          Viewing in read-only mode. Sign in to edit.
+          Not signed in — changes won&apos;t be saved.{' '}
+          <Link href="/sign-in" className="underline font-semibold hover:text-amber-900">Sign in</Link>
+        </div>
+      )}
+      {isAuthenticated && isReadOnly && showId && (
+        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-center text-sm text-blue-800">
+          Viewing as collaborator (read-only).
         </div>
       )}
       {/* ── Tab Bar ─────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-10 bg-white border-b shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center">
-          {isOwner && (
+          {isAuthenticated && (
             <Link href="/dashboard" className="px-3 py-3 text-gray-400 hover:text-black transition-colors" title="My Shows">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -426,6 +434,18 @@ export default function Page() {
               </svg>
             )}
           </button>
+          {/* Save status */}
+          {isOwner && (
+            <span className={`text-[10px] font-medium px-2 py-1 rounded mr-1 flex-shrink-0 ${
+              showContext.saving
+                ? 'text-amber-600 bg-amber-50'
+                : showContext.lastSavedAt
+                  ? 'text-green-600 bg-green-50'
+                  : 'text-gray-400'
+            }`}>
+              {showContext.saving ? 'Saving...' : showContext.lastSavedAt ? 'Saved' : ''}
+            </span>
+          )}
         </div>
       </div>
 
@@ -3191,6 +3211,11 @@ function ConfigTab({
                         : s
                     ),
                   }));
+                } else {
+                  const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+                  alert(res.status === 401
+                    ? 'Chart upload failed — you need to sign in first.'
+                    : `Chart upload failed: ${err.error || 'Unknown error'}`);
                 }
               };
               input.click();
