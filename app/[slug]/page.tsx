@@ -651,9 +651,6 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
                   </span>
                   <div className="flex-1 min-w-0">
                     <span className="font-bold text-lg leading-tight">{song.title}</span>
-                    {song.notes && (
-                      <span className="block text-xs text-zinc-500 italic mt-0.5 truncate">{song.notes}</span>
-                    )}
                   </div>
                   {song.key && (
                     <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-bold border border-zinc-700 flex-shrink-0">
