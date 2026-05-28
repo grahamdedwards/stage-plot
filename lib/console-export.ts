@@ -3,7 +3,7 @@ import type { InputChannel } from './types';
 // ─── CSV Export ──────────────────────────────────────────────────────────────
 
 function escapeCsvField(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+  if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
@@ -25,7 +25,7 @@ export function exportPatchCsv(inputs: InputChannel[]): string {
       ].join(',')
     );
 
-  return BOM + [CSV_HEADERS.join(','), ...rows].join('\n');
+  return BOM + [CSV_HEADERS.join(','), ...rows].join('\r\n');
 }
 
 // ─── XML Export ──────────────────────────────────────────────────────────────
