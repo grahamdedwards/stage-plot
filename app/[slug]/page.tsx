@@ -31,7 +31,7 @@ import type {
   GeneralNote,
   Chart,
 } from '@/lib/types';
-import { ensureSetlistSongIds, moveSetlistSong, ensureInputIds, moveInput, ensureMonitorIds, moveMonitor } from '@/lib/setlist';
+import { ensureSetlistSongIds, moveSetlistSong, ensureInputIds, moveInput, ensureMonitorIds } from '@/lib/setlist';
 import { serializeShow, deserializeShow, slugify } from '@/lib/show-file';
 import { exportPatchCsv, exportPatchXml } from '@/lib/console-export';
 import {
@@ -145,6 +145,48 @@ function decodeConfig(s: string): AppConfig | null {
   } catch {
     return null;
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SYNC: stage plot → monitor mixes (stage plot is source of truth)
+// ════════════════════════════════════════════════════════════════════════════
+
+function syncMonitorsFromStagePlot(config: AppConfig): AppConfig {
+  // Group stage slots by mix number, collecting names
+  const mixMap = new Map<number, string[]>();
+  for (const slot of config.stagePlot) {
+    if (!slot.mix || !slot.name) continue;
+    const names = mixMap.get(slot.mix) || [];
+    names.push(slot.name);
+    mixMap.set(slot.mix, names);
+  }
+
+  // Build existing needs lookup (keyed by mix number) to preserve user-edited needs
+  const existingNeeds = new Map<number, string>();
+  const existingIds = new Map<number, string>();
+  for (const mon of config.monitors) {
+    existingNeeds.set(mon.mix, mon.needs);
+    if (mon.id) existingIds.set(mon.mix, mon.id);
+  }
+
+  // Generate monitors from stage plot, sorted by mix number
+  const sortedMixes = Array.from(mixMap.keys()).sort((a, b) => a - b);
+  const newMonitors: MonitorMix[] = sortedMixes.map((mix) => ({
+    id: existingIds.get(mix) || crypto.randomUUID(),
+    mix,
+    name: mixMap.get(mix)!.join(' & '),
+    needs: existingNeeds.get(mix) ?? '',
+  }));
+
+  // Only update if monitors actually changed (avoid infinite re-render)
+  const same =
+    newMonitors.length === config.monitors.length &&
+    newMonitors.every((m, i) => {
+      const old = config.monitors[i];
+      return old && m.mix === old.mix && m.name === old.name && m.needs === old.needs;
+    });
+
+  return same ? config : { ...config, monitors: newMonitors };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -342,7 +384,11 @@ export default function Page() {
   }, []);
 
   const updateConfig = useCallback((fn: (prev: AppConfig) => AppConfig) => {
-    setConfig((prev) => fn(prev));
+    setConfig((prev) => {
+      const next = fn(prev);
+      // Sync monitors from stage plot: stage plot is source of truth for mix number + name
+      return syncMonitorsFromStagePlot(next);
+    });
   }, []);
 
   const [publishSlug] = useState(slug);
@@ -1860,98 +1906,7 @@ function SortableInputRow({
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SORTABLE MONITOR TABLE (Config tab)
-// ════════════════════════════════════════════════════════════════════════════
-
-function SetupMonitorTable({
-  monitors, onReorder, onUpdate, onDelete, onAdd,
-}: {
-  monitors: import('@/lib/types').MonitorMix[];
-  onReorder: (from: number, to: number) => void;
-  onUpdate: (idx: number, field: string, value: string) => void;
-  onDelete: (idx: number) => void;
-  onAdd: () => void;
-}) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
-  );
-  const monitorIds = monitors.map((mon) => mon.id!);
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const from = monitorIds.indexOf(active.id as string);
-    const to = monitorIds.indexOf(over.id as string);
-    if (from !== -1 && to !== -1) onReorder(from, to);
-  };
-
-  return (
-    <>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={monitorIds} strategy={verticalListSortingStrategy}>
-          <div className="space-y-3">
-            {monitors.map((mon, idx) => (
-              <SortableMonitorRow
-                key={mon.id!}
-                monitor={mon}
-                idx={idx}
-                total={monitors.length}
-                onUpdate={onUpdate}
-                onDelete={onDelete}
-                onMoveUp={() => onReorder(idx, idx - 1)}
-                onMoveDown={() => onReorder(idx, idx + 1)}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-      <button className={`${btnAdd} mt-3`} onClick={onAdd}>+ Add Mix</button>
-    </>
-  );
-}
-
-function SortableMonitorRow({
-  monitor: mon, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown,
-}: {
-  monitor: import('@/lib/types').MonitorMix;
-  idx: number;
-  total: number;
-  onUpdate: (idx: number, field: string, value: string) => void;
-  onDelete: (idx: number) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: mon.id! });
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
-
-  return (
-    <div ref={setNodeRef} style={style} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center border-b border-gray-100 pb-3">
-      <div className="cursor-grab shrink-0 pt-5 sm:pt-0 self-center" {...attributes} {...listeners}>
-        <span className="text-gray-300 text-sm select-none">&#x2630;</span>
-      </div>
-      <div className="w-16 shrink-0">
-        <label className={labelCls}>Mix #</label>
-        <span className="text-sm font-mono text-gray-500">{mon.mix}</span>
-      </div>
-      <div className="flex-1">
-        <label className={labelCls}>Name</label>
-        <input className={inputCls} value={mon.name} onChange={(e) => onUpdate(idx, 'name', e.target.value)} />
-      </div>
-      <div className="flex-[2]">
-        <label className={labelCls}>Needs</label>
-        <input className={inputCls} value={mon.needs} onChange={(e) => onUpdate(idx, 'needs', e.target.value)} />
-      </div>
-      <div className="pt-5 flex items-center gap-1">
-        <div className="flex flex-col items-center">
-          <button className={arrowBtn} disabled={idx === 0} onClick={onMoveUp} title="Move up">&uarr;</button>
-          <button className={arrowBtn} disabled={idx === total - 1} onClick={onMoveDown} title="Move down">&darr;</button>
-        </div>
-        <button className={btnRemove} onClick={() => onDelete(idx)}>X</button>
-      </div>
-    </div>
-  );
-}
+// (Monitor table removed — monitors are now derived from stage plot)
 
 // ════════════════════════════════════════════════════════════════════════════
 // AGENT CHAT (AI Show Designer panel in Config tab)
@@ -3054,26 +3009,41 @@ function ConfigTab({
           />
         </section>
 
-        {/* ── 4. Monitor Mixes ────────────────────────────────────────── */}
+        {/* ── 4. Monitor Mixes (derived from stage plot, edit "needs" here) ── */}
         <section className={sectionCls}>
           <h2 className="text-lg font-bold mb-4">Monitor Mixes</h2>
-          <SetupMonitorTable
-            monitors={config.monitors}
-            onReorder={(from, to) => updateConfig((p) => ({ ...p, monitors: moveMonitor(p.monitors, from, to) }))}
-            onUpdate={(idx, field, value) => updateConfig((p) => {
-              const arr = [...p.monitors];
-              arr[idx] = { ...arr[idx], [field]: field === 'mix' ? Number(value) : value };
-              return { ...p, monitors: arr };
-            })}
-            onDelete={(idx) => updateConfig((p) => ({
-              ...p,
-              monitors: p.monitors.filter((_, i) => i !== idx).map((mon, i) => ({ ...mon, mix: i + 1 })),
-            }))}
-            onAdd={() => updateConfig((p) => ({
-              ...p,
-              monitors: [...p.monitors, { id: crypto.randomUUID(), mix: p.monitors.length + 1, name: '', needs: '' }],
-            }))}
-          />
+          <p className="text-xs text-gray-500 mb-3">Mix numbers and names are synced from the stage plot. Edit what each person needs in their mix below.</p>
+          {config.monitors.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No mixes yet — assign mix numbers in the stage plot above.</p>
+          ) : (
+            <div className="space-y-3">
+              {config.monitors.map((mon, idx) => (
+                <div key={mon.id || idx} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center border-b border-gray-100 pb-3">
+                  <div className="w-16 shrink-0">
+                    <label className={labelCls}>Mix #</label>
+                    <span className="text-sm font-mono text-gray-500">{mon.mix}</span>
+                  </div>
+                  <div className="flex-1">
+                    <label className={labelCls}>Name</label>
+                    <span className="text-sm text-gray-700">{mon.name}</span>
+                  </div>
+                  <div className="flex-[2] w-full">
+                    <label className={labelCls}>Needs</label>
+                    <input
+                      className={inputCls}
+                      value={mon.needs}
+                      placeholder="e.g., kick, snare, vocal, keys"
+                      onChange={(e) => updateConfig((p) => {
+                        const arr = [...p.monitors];
+                        arr[idx] = { ...arr[idx], needs: e.target.value };
+                        return { ...p, monitors: arr };
+                      })}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* ── 5. Notes ──────────────────────────────────────────────── */}
