@@ -199,7 +199,7 @@ export default function Page() {
   const params = useParams();
   const slug = params.slug as string;
 
-  const [tab, setTab] = useState<'show' | 'setup' | 'ai'>('show');
+  const [tab, setTab] = useState<'perform' | 'mix' | 'config' | 'ai'>('perform');
   const [config, setConfig] = useState<AppConfig>(initConfig);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -354,25 +354,35 @@ export default function Page() {
             </a>
           )}
           <button
-            onClick={() => setTab('show')}
+            onClick={() => setTab('perform')}
             className={`flex-1 py-3 text-center font-bold text-sm uppercase tracking-wide transition-colors ${
-              tab === 'show'
+              tab === 'perform'
                 ? 'border-b-2 border-black text-black'
                 : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            Show
+            Perform
+          </button>
+          <button
+            onClick={() => setTab('mix')}
+            className={`flex-1 py-3 text-center font-bold text-sm uppercase tracking-wide transition-colors ${
+              tab === 'mix'
+                ? 'border-b-2 border-black text-black'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Mix
           </button>
           {!isReadOnly && (
           <button
-            onClick={() => setTab('setup')}
+            onClick={() => setTab('config')}
             className={`flex-1 py-3 text-center font-bold text-sm uppercase tracking-wide transition-colors ${
-              tab === 'setup'
+              tab === 'config'
                 ? 'border-b-2 border-black text-black'
                 : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            Setup
+            Config
           </button>
           )}
           {!isReadOnly && (
@@ -387,7 +397,7 @@ export default function Page() {
             AI Designer
           </button>
           )}
-          {tab === 'show' && (
+          {tab === 'mix' && (
             <button
               onClick={() => setShowPrintModal(true)}
               className="p-2 text-gray-500 hover:text-black transition-colors print:hidden"
@@ -427,11 +437,14 @@ export default function Page() {
       )}
 
       {/* ── Content ────────────────────────────────────────────────────── */}
-      {tab === 'show' && (
-        <ShowTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
+      {tab === 'perform' && (
+        <PerformTab setlist={config.setlist} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} />
       )}
-      {tab === 'setup' && (
-        <SetupTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} isOwner={isOwner} />
+      {tab === 'mix' && (
+        <MixTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
+      )}
+      {tab === 'config' && (
+        <ConfigTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} isOwner={isOwner} />
       )}
       {tab === 'ai' && (
         <div className="p-4 md:p-8">
@@ -493,7 +506,165 @@ export default function Page() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SHOW TAB — existing rider view
+// PERFORM TAB — musician's gig-day view
+// ════════════════════════════════════════════════════════════════════════════
+
+function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
+  setlist: SetlistSong[];
+  showInfo: { bandName: string; eventDate: string; venue: string; showName?: string };
+  isOffline: boolean;
+  accessToken?: string;
+  slug: string;
+}) {
+  const colorMap = new Map<string, string>();
+  setlist.forEach((s) => {
+    s.lead.split('+').map((n) => n.trim()).forEach((n) => getSingerColor(n, colorMap));
+  });
+
+  // Role filter (per-show, slug-scoped)
+  const roleKey = `showrunr-role-filter-${slug}`;
+  const [roleFilter, setRoleFilter] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'all';
+    return sessionStorage.getItem(roleKey) ?? 'all';
+  });
+  const handleRoleChange = useCallback((role: string) => {
+    setRoleFilter(role);
+    sessionStorage.setItem(roleKey, role);
+  }, [roleKey]);
+
+  const allRoles = Array.from(new Set(
+    setlist.flatMap((s) => (s.charts ?? []).map((c) => c.role))
+  )).sort();
+  const effectiveRoleFilter = roleFilter === 'all' || allRoles.includes(roleFilter) ? roleFilter : 'all';
+
+  // Chart navigator state
+  const [navigatorSongIdx, setNavigatorSongIdx] = useState<number | null>(null);
+
+  return (
+    <div className="bg-zinc-950 min-h-screen text-zinc-100">
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        {/* Header */}
+        <header className="mb-6">
+          <h1 className="text-2xl font-black tracking-tight">
+            {showInfo.showName || showInfo.bandName}
+          </h1>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-sm text-zinc-400">
+              {showInfo.venue && showInfo.eventDate
+                ? `${showInfo.venue} · ${showInfo.eventDate}`
+                : showInfo.venue || showInfo.eventDate || ''}
+            </p>
+            <p className="text-sm text-zinc-500">{setlist.length} songs</p>
+          </div>
+          {/* Role selector */}
+          {allRoles.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              <button
+                onClick={() => handleRoleChange('all')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${
+                  effectiveRoleFilter === 'all'
+                    ? 'bg-white text-black'
+                    : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                All
+              </button>
+              {allRoles.map((role) => (
+                <button
+                  key={role}
+                  onClick={() => handleRoleChange(role)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${
+                    effectiveRoleFilter === role
+                      ? 'bg-white text-black'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
+          )}
+        </header>
+
+        {/* Setlist */}
+        {setlist.length === 0 ? (
+          <p className="text-zinc-500 text-center py-12">No setlist yet. Set up your show in the Config tab.</p>
+        ) : (
+          <div className="space-y-1">
+            {setlist.map((song, idx) => {
+              const singers = song.lead.split('+').map((n) => n.trim());
+              const songCharts = (song.charts ?? []).filter(
+                (c) => effectiveRoleFilter === 'all' || c.role === effectiveRoleFilter
+              );
+              return (
+                <div
+                  key={song.id ?? song.position}
+                  className="flex items-start gap-3 px-3 py-3 rounded-lg hover:bg-zinc-900 transition-colors"
+                >
+                  <span className="text-zinc-500 font-mono text-sm w-6 text-right flex-shrink-0 pt-0.5">
+                    {song.position}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-base truncate">{song.title}</span>
+                      {song.key && (
+                        <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-semibold border border-zinc-700 flex-shrink-0">
+                          {song.key}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex flex-wrap gap-1">
+                        {singers.map((singer) => (
+                          <span key={singer} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${getSingerColor(singer, colorMap)}`}>
+                            {singer}
+                          </span>
+                        ))}
+                      </div>
+                      {song.notes && (
+                        <span className="text-xs text-zinc-500 italic truncate">{song.notes}</span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Chart button */}
+                  {songCharts.length > 0 && (
+                    <button
+                      onClick={() => setNavigatorSongIdx(idx)}
+                      className="w-8 h-8 flex items-center justify-center rounded bg-zinc-800 text-blue-400 hover:bg-zinc-700 transition-colors flex-shrink-0"
+                      title={`${songCharts.length} chart${songCharts.length > 1 ? 's' : ''}`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Chart Navigator Overlay */}
+      {navigatorSongIdx !== null && setlist[navigatorSongIdx] && (
+        <ChartNavigator
+          setlist={setlist}
+          currentIdx={navigatorSongIdx}
+          roleFilter={effectiveRoleFilter}
+          allRoles={allRoles}
+          isOffline={isOffline}
+          accessToken={accessToken}
+          onChangeIdx={setNavigatorSongIdx}
+          onChangeRole={handleRoleChange}
+          onClose={() => setNavigatorSongIdx(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MIX TAB — engineer's rider view
 // ════════════════════════════════════════════════════════════════════════════
 
 function StageSlotCell({ slot }: { slot: StageSlot | undefined }) {
@@ -566,7 +737,7 @@ function StagePlotView({ band }: { band: BandConfig }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// DRAGGABLE STAGE PLOT (Setup tab — drag to reposition)
+// DRAGGABLE STAGE PLOT (Config tab — drag to reposition)
 // ════════════════════════════════════════════════════════════════════════════
 
 function DraggableStageSlot({ pos, slot }: { pos: StagePosition; slot: StageSlot | undefined }) {
@@ -685,7 +856,7 @@ function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[];
   );
 }
 
-function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToken, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; onReorder: (from: number, to: number) => void }) {
+function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken, slug, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; slug: string; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -696,14 +867,15 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
 
   // Navigator state
   const [navigatorSongIdx, setNavigatorSongIdx] = useState<number | null>(null);
+  const roleKey = `showrunr-role-filter-${slug}`;
   const [roleFilter, setRoleFilter] = useState<string>(() => {
     if (typeof window === 'undefined') return 'all';
-    return sessionStorage.getItem('stageplot-role-filter') ?? 'all';
+    return sessionStorage.getItem(roleKey) ?? 'all';
   });
   const handleRoleChange = useCallback((role: string) => {
     setRoleFilter(role);
-    sessionStorage.setItem('stageplot-role-filter', role);
-  }, []);
+    sessionStorage.setItem(roleKey, role);
+  }, [roleKey]);
 
   // Reorder mode
   const [reorderMode, setReorderMode] = useState(false);
@@ -743,7 +915,7 @@ function ShowTab({ band, setlist, printSections, showInfo, isOffline, accessToke
           <p className="text-lg font-semibold text-gray-700 mt-1">
             {showInfo.venue && showInfo.eventDate
               ? `${showInfo.venue} · ${showInfo.eventDate}`
-              : showInfo.venue || showInfo.eventDate || 'Set venue & date in Setup'}
+              : showInfo.venue || showInfo.eventDate || 'Set venue & date in Config'}
           </p>
           <p className="text-sm text-gray-400 mt-1 uppercase tracking-wide">{band.lineup}</p>
         </header>
@@ -1312,11 +1484,11 @@ function ChartNavigator({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SETUP TAB
+// CONFIG TAB
 // ════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════
-// SHOW SORTABLE ROW (used in Show tab reorder mode)
+// SHOW SORTABLE ROW (used in Mix tab reorder mode)
 // ════════════════════════════════════════════════════════════════════════════
 
 function ShowSortableRow({
@@ -1395,7 +1567,7 @@ function ShowSortableRow({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SORTABLE SETLIST TABLE (shared DnD logic for Setup tab)
+// SORTABLE SETLIST TABLE (shared DnD logic for Config tab)
 // ════════════════════════════════════════════════════════════════════════════
 
 function SetupSetlistTable({
@@ -1555,7 +1727,7 @@ function SetupSortableRow({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SORTABLE INPUT TABLE (Setup tab)
+// SORTABLE INPUT TABLE (Config tab)
 // ════════════════════════════════════════════════════════════════════════════
 
 function SetupInputTable({
@@ -1669,7 +1841,7 @@ function SortableInputRow({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SORTABLE MONITOR TABLE (Setup tab)
+// SORTABLE MONITOR TABLE (Config tab)
 // ════════════════════════════════════════════════════════════════════════════
 
 function SetupMonitorTable({
@@ -1762,7 +1934,7 @@ function SortableMonitorRow({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// AGENT CHAT (AI Show Designer panel in Setup tab)
+// AGENT CHAT (AI Show Designer panel in Config tab)
 // ════════════════════════════════════════════════════════════════════════════
 
 interface AgentMessage {
@@ -2433,7 +2605,7 @@ const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:
 const btnAdd = 'px-3 py-1.5 text-xs font-bold bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 transition-colors';
 const btnRemove = 'px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors';
 
-function SetupTab({
+function ConfigTab({
   config,
   updateConfig,
   googleToken,
@@ -3217,7 +3389,7 @@ function SetupTab({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// OFFLINE SECTION (Setup tab — download charts for gig-day use)
+// OFFLINE SECTION (Config tab — download charts for gig-day use)
 // ════════════════════════════════════════════════════════════════════════════
 
 function OfflineSection({
