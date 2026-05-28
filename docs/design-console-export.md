@@ -160,7 +160,7 @@ This is a best-effort enrichment. The export is useful even without it (the prim
 
 ### Entry point
 
-**Location:** Setup tab → Export / Import section (existing).
+**Location:** Config tab → Export / Import section (existing).
 
 Add two new buttons below the existing "Export Show (.yaml)" button:
 
@@ -202,7 +202,7 @@ Or, if we want to keep it cleaner — a single dropdown:
 
 ### Files to modify
 
-- `app/[slug]/page.tsx` — add export buttons in the Export/Import section of SetupTab
+- `app/[slug]/page.tsx` — add export buttons in the Export/Import section of ConfigTab
 
 ### No new dependencies
 
