@@ -324,7 +324,7 @@ export default function Page() {
           });
         }
 
-        setConfig(cfg);
+        setConfig(syncMonitorsFromStagePlot(cfg));
 
         // Check ownership/editor status (requires auth)
         const supabase = getSupabaseBrowser();
@@ -2235,8 +2235,7 @@ function AgentChat({
             const newPlot = toolInput.stagePlot as StageSlot[];
             const result = { ...p, stagePlot: newPlot };
 
-            // Always cascade: expand stage slots into per-channel input list.
-            // Each slot may produce multiple channels based on role keywords.
+            // Cascade: expand stage slots into per-channel input list.
             let ch = 1;
             const inputs: InputChannel[] = [];
             for (const slot of newPlot) {
@@ -2246,28 +2245,24 @@ function AgentChat({
             }
             result.inputs = inputs;
 
-            const mixMap = new Map<number, string[]>();
-            for (const slot of newPlot) {
-              const names = mixMap.get(slot.mix) || [];
-              names.push(slot.name);
-              mixMap.set(slot.mix, names);
-            }
-            const monitors: MonitorMix[] = [];
-            for (const [mix, names] of Array.from(mixMap.entries()).sort((a, b) => a[0] - b[0])) {
-              monitors.push({
-                mix,
-                name: names.join(', '),
-                needs: '',
-              });
-            }
-            result.monitors = monitors;
+            // Monitors derived by syncMonitorsFromStagePlot (called by updateConfig wrapper)
+            // — preserves existing needs, no manual construction here.
 
             return result;
           }
           case 'update_inputs':
             return { ...p, inputs: toolInput.inputs as InputChannel[] };
-          case 'update_monitors':
-            return { ...p, monitors: toolInput.monitors as MonitorMix[] };
+          case 'update_monitors': {
+            // Only update "needs" — mix # and name are derived from stage plot
+            const aiMonitors = toolInput.monitors as MonitorMix[];
+            const needsMap = new Map(aiMonitors.map((m) => [m.mix, m.needs]));
+            return {
+              ...p,
+              monitors: p.monitors.map((m) =>
+                needsMap.has(m.mix) ? { ...m, needs: needsMap.get(m.mix)! } : m
+              ),
+            };
+          }
           case 'update_setlist':
             return { ...p, setlist: toolInput.setlist as SetlistSong[] };
           case 'update_notes':
