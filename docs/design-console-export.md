@@ -171,7 +171,8 @@ Or, if we want to keep it cleaner — a single dropdown:
 
 - `lib/console-export.ts` — pure functions:
   - `exportPatchCsv(inputs: InputChannel[]): string`
-  - `exportPatchXml(inputs: InputChannel[], showInfo: { bandName: string; eventDate: string; venue: string }): string`
+  - `exportPatchXml(inputs: InputChannel[], showInfo: { bandName: string; showName?: string; eventDate: string; venue: string }): string`
+  - XML `show` attribute uses `showName ?? bandName` (matches UI priority)
 
 ### Files to modify
 
@@ -196,7 +197,8 @@ Zero npm additions.
 
 - Unit tests for `exportPatchCsv` and `exportPatchXml` covering:
   - Standard input list
-  - Special characters (RFC 4180 quoting for CSV, XML escaping)
+  - CSV output starts with UTF-8 BOM (`\uFEFF`)
+  - Special characters (RFC 4180 quoting + double-quote doubling for CSV, XML escaping including `&apos;`)
   - Empty inputs array
   - Missing optional fields
 
