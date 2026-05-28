@@ -153,30 +153,36 @@ function decodeConfig(s: string): AppConfig | null {
 
 function syncMonitorsFromStagePlot(config: AppConfig): AppConfig {
   // Group stage slots by mix number, collecting names
+  // Skip slots with empty name (mid-edit) but keep the mix if it existed before
   const mixMap = new Map<number, string[]>();
   for (const slot of config.stagePlot) {
-    if (!slot.mix || !slot.name) continue;
+    if (!slot.mix) continue;
     const names = mixMap.get(slot.mix) || [];
-    names.push(slot.name);
+    if (slot.name) names.push(slot.name);
     mixMap.set(slot.mix, names);
   }
 
-  // Build existing needs lookup (keyed by mix number) to preserve user-edited needs
-  const existingNeeds = new Map<number, string>();
-  const existingIds = new Map<number, string>();
+  // Index existing monitors by mix number (preserve needs, id)
+  const existingByMix = new Map<number, MonitorMix>();
   for (const mon of config.monitors) {
-    existingNeeds.set(mon.mix, mon.needs);
-    if (mon.id) existingIds.set(mon.mix, mon.id);
+    existingByMix.set(mon.mix, mon);
   }
 
-  // Generate monitors from stage plot, sorted by mix number
-  const sortedMixes = Array.from(mixMap.keys()).sort((a, b) => a - b);
-  const newMonitors: MonitorMix[] = sortedMixes.map((mix) => ({
-    id: existingIds.get(mix) || crypto.randomUUID(),
-    mix,
-    name: mixMap.get(mix)!.join(' & '),
-    needs: existingNeeds.get(mix) ?? '',
-  }));
+  // All mix numbers: union of stage plot + existing monitors (don't drop during mid-edit)
+  const allMixes = new Set([...mixMap.keys(), ...existingByMix.keys()]);
+  const sortedMixes = Array.from(allMixes).sort((a, b) => a - b);
+
+  const newMonitors: MonitorMix[] = sortedMixes.map((mix) => {
+    const existing = existingByMix.get(mix);
+    const slotNames = mixMap.get(mix) ?? [];
+    const derivedName = slotNames.length > 0 ? slotNames.join(' & ') : (existing?.name ?? '');
+    return {
+      id: existing?.id || crypto.randomUUID(),
+      mix,
+      name: derivedName,
+      needs: existing?.needs ?? '',
+    };
+  });
 
   // Only update if monitors actually changed (avoid infinite re-render)
   const same =
