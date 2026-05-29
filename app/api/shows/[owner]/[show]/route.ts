@@ -4,32 +4,44 @@ import { normalizeSongKeySafe } from '@/lib/normalize';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
-// GET /api/shows/[slug] — anonymous slug resolution (no auth required)
+// GET /api/shows/[owner]/[show] — anonymous show resolution by owner + slug (no auth required)
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> },
+  { params }: { params: Promise<{ owner: string; show: string }> },
 ) {
-  const { slug } = await params;
+  const { owner, show } = await params;
 
-  if (!slug || !SLUG_RE.test(slug)) {
-    return Response.json({ error: 'Invalid slug' }, { status: 400 });
+  if (!owner || !SLUG_RE.test(owner) || !show || !SLUG_RE.test(show)) {
+    return Response.json({ error: 'Invalid owner or show slug' }, { status: 400 });
   }
 
   const admin = getSupabaseAdmin();
 
-  // Fetch show config
-  const { data: show, error } = await admin
-    .from('shows')
-    .select('id, config, name, venue, show_date, owner_id')
-    .eq('slug', slug)
+  // Resolve owner_slug -> owner_id
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('owner_slug', owner)
     .single();
 
-  if (error || !show) {
+  if (!profile) {
+    return Response.json({ error: 'Owner not found' }, { status: 404 });
+  }
+
+  // Fetch show by (owner_id, slug) pair
+  const { data: showData, error } = await admin
+    .from('shows')
+    .select('id, config, name, venue, show_date, owner_id')
+    .eq('owner_id', profile.id)
+    .eq('slug', show)
+    .single();
+
+  if (error || !showData) {
     return Response.json({ error: 'Show not found' }, { status: 404 });
   }
 
   // Resolve charts from owner's library by normalized song titles
-  const setlist = (show.config as { setlist?: Array<{ title: string }> })?.setlist || [];
+  const setlist = (showData.config as { setlist?: Array<{ title: string }> })?.setlist || [];
   const songKeys = setlist
     .map((s) => normalizeSongKeySafe(s.title))
     .filter((k): k is string => k !== null);
@@ -40,7 +52,7 @@ export async function GET(
     const { data: charts } = await admin
       .from('chart_library')
       .select('id, song_key, role, file_name, storage_path, mime_type, file_size, updated_at')
-      .eq('owner_id', show.owner_id)
+      .eq('owner_id', showData.owner_id)
       .in('song_key', songKeys);
 
     for (const c of charts || []) {
@@ -59,8 +71,10 @@ export async function GET(
   }
 
   return Response.json({
-    config: show.config,
+    config: showData.config,
     charts: chartsBySong,
-    slug,
+    slug: show,
+    show_id: showData.id,
+    owner_id: showData.owner_id,
   });
 }

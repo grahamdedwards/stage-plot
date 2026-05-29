@@ -3,15 +3,21 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
+// Validate that a stored path is a safe internal /{owner}/{show} path
+function isValidShowPath(path: string): boolean {
+  return /^\/[a-z0-9][a-z0-9-]*[a-z0-9]\/[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(path);
+}
+
 export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Handle legacy ?show=slug URLs — redirect to /slug
+    // Handle legacy ?show=slug URLs
     const params = new URLSearchParams(window.location.search);
     const legacySlug = params.get('show');
     if (legacySlug) {
-      router.replace(`/${legacySlug}`);
+      // Legacy URLs no longer resolve at /{slug} — user needs to find the show via dashboard
+      router.replace('/dashboard');
       return;
     }
 
@@ -21,6 +27,15 @@ export default function RootPage() {
       localStorage.setItem('showrunr-pending-import', legacyConfig);
       router.replace('/dashboard');
       return;
+    }
+
+    // Offline: redirect to last-viewed show if available
+    if (!navigator.onLine) {
+      const lastShow = localStorage.getItem('showrunr-last-show');
+      if (lastShow && isValidShowPath(lastShow)) {
+        router.replace(lastShow);
+        return;
+      }
     }
 
     // Check auth state — redirect to dashboard or sign-in

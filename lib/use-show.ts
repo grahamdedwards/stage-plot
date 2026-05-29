@@ -23,6 +23,7 @@ export function useShow(
   slug: string | null,
   isOwner: boolean,
   isEditor: boolean,
+  ownerSlug?: string | null,
 ): UseShowReturn {
   const [saving, setSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -57,7 +58,8 @@ export function useShow(
         localStorage.setItem(`showrunr-last-saved-${showId}`, updated_at);
         // If slug changed (name was updated), update URL without full reload
         if (newSlug && slug && newSlug !== slug && typeof window !== 'undefined') {
-          window.history.replaceState(null, '', `/${newSlug}`);
+          const prefix = ownerSlug ? `/${ownerSlug}` : '';
+          window.history.replaceState(null, '', `${prefix}/${newSlug}`);
         }
       }
     } catch {
@@ -65,7 +67,7 @@ export function useShow(
     } finally {
       setSaving(false);
     }
-  }, [showId, slug, isReadOnly]);
+  }, [showId, slug, isReadOnly, ownerSlug]);
 
   const saveConfig = useCallback((config: Record<string, unknown>) => {
     if (!showId || isReadOnly) return;
