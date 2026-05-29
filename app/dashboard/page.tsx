@@ -14,9 +14,11 @@ interface ShowSummary {
   show_date: string | null;
   updated_at: string;
   role?: string;
+  owner_slug: string;
 }
 
 export default function DashboardPage() {
+  const [ownerSlug, setOwnerSlug] = useState('');
   const [owned, setOwned] = useState<ShowSummary[]>([]);
   const [collaborating, setCollaborating] = useState<ShowSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +32,7 @@ export default function DashboardPage() {
       const res = await fetch('/api/shows');
       if (res.ok) {
         const data = await res.json();
+        setOwnerSlug(data.owner_slug || '');
         setOwned(data.owned);
         setCollaborating(data.collaborating);
       }
@@ -48,14 +51,26 @@ export default function DashboardPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config, name, venue: config.showInfo?.venue }),
-        }).then((res) => {
-          if (res.ok) res.json().then(({ slug }) => router.push(`/${slug}`));
+        }).then(async (res) => {
+          if (res.ok) {
+            const { slug } = await res.json();
+            // Refetch to get owner_slug for redirect
+            const profileRes = await fetch('/api/profiles');
+            if (profileRes.ok) {
+              const profile = await profileRes.json();
+              router.push(`/${profile.owner_slug}/${slug}`);
+            }
+          }
         });
       } catch {
         // Invalid config — silently ignore
       }
     }
   }, [router]);
+
+  function showUrl(show: ShowSummary) {
+    return `/${show.owner_slug}/${show.slug}`;
+  }
 
   async function handleCreate() {
     setCreating(true);
@@ -79,7 +94,7 @@ export default function DashboardPage() {
 
     if (res.ok) {
       const { slug } = await res.json();
-      router.push(`/${slug}`);
+      router.push(`/${ownerSlug}/${slug}`);
     }
     setCreating(false);
   }
@@ -110,7 +125,7 @@ export default function DashboardPage() {
 
       if (res.ok) {
         const { slug } = await res.json();
-        router.push(`/${slug}`);
+        router.push(`/${ownerSlug}/${slug}`);
       }
     } catch (err) {
       alert(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -201,7 +216,7 @@ export default function DashboardPage() {
                   <ShowCard
                     key={show.id}
                     show={show}
-                    onOpen={() => router.push(`/${show.slug}`)}
+                    onOpen={() => router.push(showUrl(show))}
                     onDelete={() => handleDelete(show.id, show.name)}
                   />
                 ))}
@@ -219,7 +234,7 @@ export default function DashboardPage() {
                   <ShowCard
                     key={show.id}
                     show={show}
-                    onOpen={() => router.push(`/${show.slug}`)}
+                    onOpen={() => router.push(showUrl(show))}
                   />
                 ))}
               </div>
@@ -252,7 +267,7 @@ function ShowCard({
       </button>
       <div className="flex items-center gap-2 ml-4">
         <span className="text-xs text-zinc-600">
-          /{show.slug}
+          /{show.owner_slug}/{show.slug}
         </span>
         {onDelete && (
           <button

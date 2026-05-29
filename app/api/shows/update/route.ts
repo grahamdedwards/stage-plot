@@ -29,9 +29,10 @@ export async function PUT(request: NextRequest) {
   const effectiveName = name || config.showInfo?.showName || config.showInfo?.bandName || 'Untitled';
 
   // Check if name changed — regenerate slug if so
+  // Fetch owner_id too: collision scope must be per-owner, not per-caller (Codex finding #2)
   const { data: current } = await supabase
     .from('shows')
-    .select('name, slug')
+    .select('name, slug, owner_id')
     .eq('id', id)
     .single();
 
@@ -52,6 +53,7 @@ export async function PUT(request: NextRequest) {
           .from('shows')
           .select('id')
           .eq('slug', slug)
+          .eq('owner_id', current.owner_id)
           .neq('id', id)
           .single();
 

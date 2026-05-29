@@ -20,6 +20,15 @@ export async function GET() {
     return Response.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  // Get user's profile for owner_slug
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('owner_slug')
+    .eq('id', user.id)
+    .single();
+
+  const ownerSlug = profile?.owner_slug || '';
+
   // Get owned shows
   const { data: owned } = await supabase
     .from('shows')
@@ -27,18 +36,42 @@ export async function GET() {
     .eq('owner_id', user.id)
     .order('updated_at', { ascending: false });
 
-  // Get shows user collaborates on
+  // Get shows user collaborates on (include owner's profile for URL)
   const { data: collabs } = await supabase
     .from('show_collaborators')
-    .select('show_id, role, shows(id, slug, name, venue, show_date, updated_at)')
+    .select('show_id, role, shows(id, slug, name, venue, show_date, updated_at, owner_id)')
     .eq('user_id', user.id);
 
+  // Resolve owner slugs for collaborated shows
+  const collabOwnerIds = [...new Set(
+    (collabs || [])
+      .map((c) => (c.shows as unknown as { owner_id: string })?.owner_id)
+      .filter(Boolean),
+  )];
+
+  let ownerSlugsMap: Record<string, string> = {};
+  if (collabOwnerIds.length > 0) {
+    const { data: ownerProfiles } = await supabase
+      .from('profiles')
+      .select('id, owner_slug')
+      .in('id', collabOwnerIds);
+
+    ownerSlugsMap = Object.fromEntries(
+      (ownerProfiles || []).map((p) => [p.id, p.owner_slug]),
+    );
+  }
+
   return Response.json({
-    owned: owned || [],
-    collaborating: (collabs || []).map((c) => ({
-      ...(c.shows as unknown as Record<string, unknown>),
-      role: c.role,
-    })),
+    owner_slug: ownerSlug,
+    owned: (owned || []).map((s) => ({ ...s, owner_slug: ownerSlug })),
+    collaborating: (collabs || []).map((c) => {
+      const show = c.shows as unknown as Record<string, unknown>;
+      return {
+        ...show,
+        role: c.role,
+        owner_slug: ownerSlugsMap[show.owner_id as string] || '',
+      };
+    }),
   });
 }
 

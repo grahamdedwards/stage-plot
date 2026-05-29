@@ -199,7 +199,8 @@ function initGoogleToken(): GoogleToken | null {
 
 export default function Page() {
   const params = useParams();
-  const slug = params.slug as string;
+  const owner = params.owner as string;
+  const slug = params.show as string;
 
   const [tab, setTab] = useState<'perform' | 'mix' | 'config' | 'ai'>('perform');
   const [config, setConfig] = useState<AppConfig>(initConfig);
@@ -224,7 +225,7 @@ export default function Page() {
   const [isEditor, setIsEditor] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  const { context: showContext, saveConfig } = useShow(showId, slug, isOwner, isEditor);
+  const { context: showContext, saveConfig } = useShow(showId, slug, isOwner, isEditor, owner);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -248,13 +249,13 @@ export default function Page() {
 
   // ── Load show from Supabase on mount ─────────────────────────────────
   useEffect(() => {
-    if (!slug) return;
+    if (!owner || !slug) return;
 
-    fetch(`/api/shows/${encodeURIComponent(slug)}`)
+    fetch(`/api/shows/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`)
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Load failed' }));
-          setLoadError(err.error || `Show "${slug}" not found`);
+          setLoadError(err.error || `Show "${owner}/${slug}" not found`);
           return;
         }
         return res.json();
@@ -284,43 +285,42 @@ export default function Page() {
 
         setConfig(cfg);
 
-        // Check ownership/editor status (requires auth)
+        // Check ownership/editor status using IDs from API response
         const supabase = getSupabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: show } = await supabase
-            .from('shows')
-            .select('id, owner_id')
-            .eq('slug', slug)
-            .single();
+        if (user && data.show_id) {
+          let isOwnerFlag = false;
+          let isEditorFlag = false;
+          if (data.owner_id === user.id) {
+            isOwnerFlag = true;
+            isEditorFlag = true;
+          } else {
+            const { data: collab } = await supabase
+              .from('show_collaborators')
+              .select('role')
+              .eq('show_id', data.show_id)
+              .eq('user_id', user.id)
+              .single();
 
-          if (show) {
-            let owner = false;
-            let editor = false;
-            if (show.owner_id === user.id) {
-              owner = true;
-              editor = true;
-            } else {
-              const { data: collab } = await supabase
-                .from('show_collaborators')
-                .select('role')
-                .eq('show_id', show.id)
-                .eq('user_id', user.id)
-                .single();
-
-              if (collab?.role === 'editor') editor = true;
-            }
-            // Set all three together to avoid isReadOnly flash
-            setIsOwner(owner);
-            setIsEditor(editor);
-            setShowId(show.id);
+            if (collab?.role === 'editor') isEditorFlag = true;
           }
+          // Set all three together to avoid isReadOnly flash
+          setIsOwner(isOwnerFlag);
+          setIsEditor(isEditorFlag);
+          setShowId(data.show_id);
         }
       })
       .catch(() => {
-        setLoadError(`Could not load show "${slug}" — network error`);
+        setLoadError(`Could not load show "${owner}/${slug}" — network error`);
       });
-  }, [slug]);
+  }, [owner, slug]);
+
+  // ── Remember last-viewed show for offline PWA launch ────────────────
+  useEffect(() => {
+    if (owner && slug) {
+      localStorage.setItem('showrunr-last-show', `/${owner}/${slug}`);
+    }
+  }, [owner, slug]);
 
   // ── Persist to localStorage + Supabase on change ─────────────────────
   useEffect(() => {
@@ -351,11 +351,11 @@ export default function Page() {
 
   // Share: just copy the current slug URL
   const handlePublish = useCallback(async () => {
-    const url = `${window.location.origin}/${slug}`;
+    const url = `${window.location.origin}/${owner}/${slug}`;
     await navigator.clipboard.writeText(url);
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
-  }, [slug]);
+  }, [owner, slug]);
 
   const band = configToBand(config);
   const isReadOnly = !isOwner && !isEditor;
@@ -481,10 +481,10 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'perform' && (
-        <PerformTab setlist={config.setlist} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} />
+        <PerformTab setlist={config.setlist} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} owner={owner} />
       )}
       {tab === 'mix' && (
-        <MixTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
+        <MixTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} owner={owner} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       )}
       {tab === 'config' && (
         <ConfigTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} isOwner={isOwner} />
@@ -552,15 +552,16 @@ export default function Page() {
 // PERFORM TAB — musician's gig-day view
 // ════════════════════════════════════════════════════════════════════════════
 
-function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
+function PerformTab({ setlist, showInfo, isOffline, accessToken, slug, owner }: {
   setlist: SetlistSong[];
   showInfo: { bandName: string; eventDate: string; venue: string; showName?: string };
   isOffline: boolean;
   accessToken?: string;
   slug: string;
+  owner: string;
 }) {
-  // Role filter (per-show, slug-scoped)
-  const roleKey = `showrunr-role-filter-${slug}`;
+  // Role filter (per-show, owner-scoped to avoid cross-owner collisions)
+  const roleKey = `showrunr-role-filter-${owner}/${slug}`;
   const [roleFilter, setRoleFilter] = useState<string>(() => {
     if (typeof window === 'undefined') return 'all';
     return sessionStorage.getItem(roleKey) ?? 'all';
@@ -886,7 +887,7 @@ function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[];
   );
 }
 
-function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken, slug, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; slug: string; onReorder: (from: number, to: number) => void }) {
+function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken, slug, owner, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; slug: string; owner: string; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -897,7 +898,7 @@ function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken
 
   // Navigator state
   const [navigatorSongIdx, setNavigatorSongIdx] = useState<number | null>(null);
-  const roleKey = `showrunr-role-filter-${slug}`;
+  const roleKey = `showrunr-role-filter-${owner}/${slug}`;
   const [roleFilter, setRoleFilter] = useState<string>(() => {
     if (typeof window === 'undefined') return 'all';
     return sessionStorage.getItem(roleKey) ?? 'all';
