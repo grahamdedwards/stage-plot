@@ -1,5 +1,6 @@
-# ShowRunr Payments + Subscription — Design Spec v1.1
+# ShowRunr Payments + Subscription — Design Spec v1.2
 
+> v1.2 changelog: Addressed 2 Codex round-2 findings — calendar-month show cap (not billing-period), webhook state reconciliation.
 > v1.1 changelog: Addressed 4 Codex findings — billing PII isolation, quota counter split, collaborator enforcement scope, webhook idempotency.
 
 ## Goals
@@ -122,12 +123,17 @@ Key considerations for future design:
 | `customer.subscription.deleted` | Set `profiles.plan = 'expired'`, start 180-day retention clock |
 | `invoice.payment_failed` | Set `profiles.plan = 'past_due'`, show banner in UI |
 
-### Webhook Idempotency
+### Webhook Idempotency and Ordering
 
 - Store every processed event in a `billing_events` log table: `(id PK, stripe_event_id UNIQUE, event_type, processed_at)`.
 - On webhook receipt, check `stripe_event_id` uniqueness before processing. Skip duplicates.
 - Stripe retries failed webhook deliveries and may send duplicates — this prevents plan flapping and duplicate mutations.
 - All webhook handlers must be idempotent beyond the event log (i.e., setting `plan = 'pro'` when already `'pro'` is a no-op).
+
+**Out-of-order delivery:** Stripe does not guarantee webhook delivery order. A stale `invoice.payment_failed` could arrive after a newer `invoice.paid`. To handle this:
+- On any plan-mutating webhook, **fetch current subscription state from Stripe** (`stripe.subscriptions.retrieve(subscription_id)`) rather than trusting the event payload alone.
+- The webhook event is the trigger; the Stripe API response is the source of truth for plan state.
+- This prevents a late-arriving failure event from overwriting a successful payment.
 
 ### Database Schema Changes
 
@@ -148,8 +154,10 @@ ALTER TABLE profiles ADD COLUMN shows_created_lifetime INTEGER NOT NULL DEFAULT 
 
 ALTER TABLE profiles ADD COLUMN shows_created_this_period INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE profiles ADD COLUMN period_start TIMESTAMPTZ;
--- Rolling period counter for pro 30/mo limit. Dynamic check:
--- if period_start is older than current billing period, reset counter to 0.
+-- Rolling period counter for pro 30/mo limit. Uses CALENDAR MONTH window
+-- (not Stripe billing period). Dynamic check: if period_start is in a
+-- previous calendar month, reset counter to 0 and set period_start to
+-- 1st of current month before incrementing.
 
 ALTER TABLE profiles ADD COLUMN songs_count INTEGER NOT NULL DEFAULT 0;
 -- Incremented/decremented on song library changes. Used for 50/150 limit.
@@ -197,8 +205,10 @@ All write gates resolve against the **show owner's** billing state, not the acti
 ### Monthly Show Counter Reset
 
 - `shows_created_this_period` resets dynamically — no cron needed.
-- On show creation, compare `period_start` against current billing period start. If stale, reset counter to 0 and update `period_start` before incrementing.
+- Uses **calendar month** window, not Stripe billing period. This is critical for annual subscribers — Stripe's billing period is yearly, but the show cap is monthly.
+- On show creation: if `period_start` is in a previous calendar month, reset counter to 0 and set `period_start` to the 1st of the current month, then increment.
 - `shows_created_lifetime` never resets (used for trial gate only).
+- Same logic applies to both monthly and annual Pro subscribers — the show cap is always 30/calendar month regardless of billing cadence.
 
 ---
 
@@ -257,11 +267,14 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_...
 2. **Past-due grace period** — follow Stripe's default retry schedule (~4 weeks). No custom nagging.
 3. **Show freeze interaction** — yes, duplicating a frozen show counts as a new show toward monthly/lifetime limits.
 
-## Codex Review (v1.1)
-
-4 findings addressed:
+## Codex Review (v1.1) — 4 findings
 
 1. **CRITICAL**: Billing PII (`stripe_customer_id`) moved from `profiles` (public-read RLS) to private `billing_accounts` table (server-only access).
 2. **HIGH**: Single `shows_created_count` split into `shows_created_lifetime` (trial) + `shows_created_this_period` / `period_start` (pro monthly).
 3. **HIGH**: Enforcement gates now explicitly resolve against show owner's plan, not acting user's plan.
 4. **HIGH**: Added `invoice.paid` webhook event + `billing_events` idempotency log table.
+
+## Codex Review (v1.2) — 2 findings
+
+5. **HIGH**: Show cap uses calendar-month window, not Stripe billing period. Prevents annual subscribers from getting 30/year instead of 30/month.
+6. **MEDIUM**: Webhook handlers now fetch current Stripe subscription state on plan-mutating events, not just trust event payload. Prevents out-of-order delivery from overwriting newer state.
