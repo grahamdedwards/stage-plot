@@ -1,4 +1,6 @@
-# ShowRunr Payments + Subscription — Design Spec v1.0
+# ShowRunr Payments + Subscription — Design Spec v1.1
+
+> v1.1 changelog: Addressed 4 Codex findings — billing PII isolation, quota counter split, collaborator enforcement scope, webhook idempotency.
 
 ## Goals
 
@@ -107,53 +109,96 @@ Key considerations for future design:
     |                                |
     |<-- Webhook: subscription ------|
     |    created/updated/deleted     |
-    |    → update profiles.plan     |
+    |    → update billing_accounts  |
 ```
 
 ### Webhook Events to Handle
 
 | Event | Action |
 |---|---|
-| `checkout.session.completed` | Set `profiles.plan = 'pro'`, store `stripe_customer_id` |
+| `checkout.session.completed` | Create `billing_accounts` row, set `profiles.plan = 'pro'` |
+| `invoice.paid` | Confirm ongoing provisioning — set/keep `profiles.plan = 'pro'` |
 | `customer.subscription.updated` | Update plan if changed (e.g., monthly ↔ annual) |
 | `customer.subscription.deleted` | Set `profiles.plan = 'expired'`, start 180-day retention clock |
 | `invoice.payment_failed` | Set `profiles.plan = 'past_due'`, show banner in UI |
+
+### Webhook Idempotency
+
+- Store every processed event in a `billing_events` log table: `(id PK, stripe_event_id UNIQUE, event_type, processed_at)`.
+- On webhook receipt, check `stripe_event_id` uniqueness before processing. Skip duplicates.
+- Stripe retries failed webhook deliveries and may send duplicates — this prevents plan flapping and duplicate mutations.
+- All webhook handlers must be idempotent beyond the event log (i.e., setting `plan = 'pro'` when already `'pro'` is a no-op).
 
 ### Database Schema Changes
 
 ```sql
 -- Migration 006: payments
+
+-- profiles: public-readable fields only (plan status is not PII)
 ALTER TABLE profiles ADD COLUMN plan TEXT NOT NULL DEFAULT 'trial';
 -- plan values: 'owner', 'trial', 'pro', 'expired', 'past_due'
 
-ALTER TABLE profiles ADD COLUMN stripe_customer_id TEXT;
 ALTER TABLE profiles ADD COLUMN trial_started_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE profiles ADD COLUMN plan_expires_at TIMESTAMPTZ;
 -- plan_expires_at: set to trial_started_at + 30 days for trial,
 -- or subscription end date for cancelled pro.
 
-ALTER TABLE profiles ADD COLUMN shows_created_count INTEGER NOT NULL DEFAULT 0;
--- Incremented on show insert. Used for trial 5-show limit and 30/mo pro limit.
+ALTER TABLE profiles ADD COLUMN shows_created_lifetime INTEGER NOT NULL DEFAULT 0;
+-- Lifetime total shows created. Used for trial 5-show gate. Never resets.
+
+ALTER TABLE profiles ADD COLUMN shows_created_this_period INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN period_start TIMESTAMPTZ;
+-- Rolling period counter for pro 30/mo limit. Dynamic check:
+-- if period_start is older than current billing period, reset counter to 0.
 
 ALTER TABLE profiles ADD COLUMN songs_count INTEGER NOT NULL DEFAULT 0;
 -- Incremented/decremented on song library changes. Used for 50/150 limit.
+
+-- billing_accounts: private table, NO public RLS
+-- Contains Stripe PII — accessible only via service-role key (server-side).
+CREATE TABLE billing_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  stripe_customer_id TEXT NOT NULL,
+  stripe_subscription_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(profile_id)
+);
+
+-- billing_events: webhook idempotency log
+CREATE TABLE billing_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stripe_event_id TEXT NOT NULL UNIQUE,
+  event_type TEXT NOT NULL,
+  processed_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- RLS: billing tables are server-only (no public access)
+ALTER TABLE billing_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_events ENABLE ROW LEVEL SECURITY;
+-- No policies = no client access. Server uses service-role key.
 ```
+
+> **Design note (Codex finding #1):** `stripe_customer_id` is intentionally kept off `profiles` because `profiles` has `SELECT USING (true)` RLS. All Stripe identifiers live in `billing_accounts`, accessible only server-side via service-role key.
 
 ### Enforcement Points
 
-| Gate | Check | Behavior |
+All write gates resolve against the **show owner's** billing state, not the acting user's. A collaborator editing someone else's show is gated by the owner's plan. This prevents a free collaborator from being incorrectly blocked on a paid owner's show, and prevents a paid collaborator from bypassing limits on an expired owner's show.
+
+| Gate | Check (against show owner) | Behavior |
 |---|---|---|
-| Create show | `plan` is active + under show limit | Block with upgrade CTA |
+| Create show | `plan` is active + `shows_created_lifetime` < 5 (trial) or `shows_created_this_period` < 30 (pro) | Block with upgrade CTA |
 | Edit show | `plan` is active (not expired/trial-ended) | Read-only mode with upgrade CTA |
-| Add song | `songs_count` < tier limit | Block with upgrade CTA |
+| Add song | `songs_count` < tier limit (50 trial / 150 pro) | Block with upgrade CTA |
 | Upload chart | `songs_count` < tier limit | Block with upgrade CTA |
 | AI co-designer | Always BYOA (no gate needed at launch) | N/A |
 
 ### Monthly Show Counter Reset
 
-- `shows_created_count` for Pro users resets monthly.
-- Options: (a) cron job on billing cycle date, (b) store `shows_created_this_period` with `period_start` and check dynamically.
-- Lean toward (b) — no cron needed, just compare `shows_created_this_period` against current billing period.
+- `shows_created_this_period` resets dynamically — no cron needed.
+- On show creation, compare `period_start` against current billing period start. If stale, reset counter to 0 and update `period_start` before incrementing.
+- `shows_created_lifetime` never resets (used for trial gate only).
 
 ---
 
@@ -206,8 +251,17 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_...
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **Monthly show reset mechanism** — dynamic check vs. cron? Leaning dynamic.
-2. **Past-due grace period** — how long before downgrading from `past_due` to `expired`? Stripe default retry schedule is ~4 weeks.
-3. **Show freeze interaction** — does duplicating a frozen show count toward the monthly show limit? (Probably yes — it's a new show.)
+1. **Monthly show reset mechanism** — dynamic check (no cron). Compare `period_start` on each show creation.
+2. **Past-due grace period** — follow Stripe's default retry schedule (~4 weeks). No custom nagging.
+3. **Show freeze interaction** — yes, duplicating a frozen show counts as a new show toward monthly/lifetime limits.
+
+## Codex Review (v1.1)
+
+4 findings addressed:
+
+1. **CRITICAL**: Billing PII (`stripe_customer_id`) moved from `profiles` (public-read RLS) to private `billing_accounts` table (server-only access).
+2. **HIGH**: Single `shows_created_count` split into `shows_created_lifetime` (trial) + `shows_created_this_period` / `period_start` (pro monthly).
+3. **HIGH**: Enforcement gates now explicitly resolve against show owner's plan, not acting user's plan.
+4. **HIGH**: Added `invoice.paid` webhook event + `billing_events` idempotency log table.
