@@ -1,6 +1,7 @@
-# Alpha-Ready: Owner Namespacing + Offline PWA — Design Spec v1.1
+# Alpha-Ready: Owner Namespacing + Offline PWA — Design Spec v1.2
 
-> v1.1 changelog: Addressed 5 Codex review findings (see Appendix A).
+> v1.2 changelog: Addressed 3 Codex round-2 findings (see Appendix B).
+> v1.1 changelog: Addressed 5 Codex round-1 findings (see Appendix A).
 
 ## Goals
 
@@ -31,9 +32,9 @@ pricing, terms, privacy, settings, new, import, export
 ```
 
 **Examples:**
-- `stage-plot-five.vercel.app/loosely-covered/fernandos-party`
-- `stage-plot-five.vercel.app/sleazzy-top/woof-camp-afterglow`
-- `showrunr.com/graham/nicholson-ranch` (future, post-domain purchase)
+- `showrunr.ai/loosely-covered/fernandos-party`
+- `showrunr.ai/sleazzy-top/woof-camp-afterglow`
+- `showrunr.ai/graham/nicholson-ranch`
 
 ### Data Model
 
@@ -85,9 +86,25 @@ ON CONFLICT (id) DO NOTHING;
 1. Middleware checks auth session -> user exists -> query profiles table
 2. No profile -> redirect to `/claim`
 3. `/claim` page: simple form
+
+**Middleware carve-outs (Codex round-2 finding #1):** The profile-check redirect
+must exempt these paths to prevent redirect loops:
+- `/claim` (the destination itself)
+- `/api/profiles` (the endpoint `/claim` POSTs to)
+- `/sign-in`, `/sign-out` (auth flow)
+- `/api/*` (all API routes — no profile gate on data endpoints)
+
+```typescript
+// middleware.ts — skip profile check for these paths
+const PROFILE_CHECK_EXEMPT = new Set([
+  '/claim', '/sign-in', '/sign-out',
+]);
+const skipProfileCheck =
+  PROFILE_CHECK_EXEMPT.has(pathname) || pathname.startsWith('/api/');
+```
    - Heading: "Claim your RunR"
    - Subheading: "Pick a handle for your ShowRunr URL"
-   - Input: `showrunr.com/` + [text field] (or `stage-plot-five.vercel.app/` for now)
+   - Input: `showrunr.com/` + [text field] (or `showrunr.ai/` for now)
    - Validation: lowercase, alphanumeric + hyphens, 3-30 chars, not in blocklist, not taken
    - Optional: display name field
    - Submit -> insert into profiles -> redirect to `/dashboard`
@@ -148,8 +165,8 @@ NOT `auth.uid()` — otherwise an editor's collision check would search the wron
 owner's namespace.
 
 ```typescript
-// POST /api/shows (create) — caller is always the owner
-.eq('slug', slug).eq('owner_id', user.id).neq('id', id)
+// POST /api/shows (create) — caller is always the owner, no existing id to exclude
+.eq('slug', slug).eq('owner_id', user.id)
 
 // PUT /api/shows/update (rename) — must resolve owner from the show, not the session
 const { data: show } = await supabase.from('shows').select('owner_id').eq('id', id).single();
@@ -336,8 +353,9 @@ Add a small "Add to Home Screen" prompt on Perform tab for eligible browsers:
 ## Implementation Plan
 
 ### Phase 1: Owner namespacing (PR A)
-1. Migration 005: profiles table + shows constraint change + seed existing users
-2. `POST /api/profiles` endpoint (claim handle)
+1. Migration 005: profiles table + shows constraint change (schema only, no seed data)
+2. Manual step: run `supabase/seeds/seed_profiles.sql` per environment
+3. `POST /api/profiles` endpoint (claim handle)
 3. `app/claim/page.tsx` onboarding page
 4. Move `app/[slug]/page.tsx` -> `app/[owner]/[show]/page.tsx`
 5. New `app/api/shows/[owner]/[show]/route.ts`
@@ -372,6 +390,14 @@ Add a small "Add to Home Screen" prompt on Perform tab for eligible browsers:
 | 3 | HIGH | `start_url: '/dashboard'` fails offline (requires auth API fetch) | Keep `start_url: '/'`, add offline branch that redirects to last-viewed show from localStorage |
 | 4 | HIGH | SW registration only triggered on chart download — too late for install prompt and app shell precache | Global SW registration via `SwRegister` component in `layout.tsx` |
 | 5 | MEDIUM | Migration seed with hardcoded UUIDs not reproducible across environments | Seed moved to `supabase/seeds/seed_profiles.sql` (manual, env-specific), UUIDs documented in vault not code |
+
+## Appendix B: Codex Review Findings Round 2 (v1.1 -> v1.2)
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 6 | HIGH | Claim-flow middleware redirect to `/claim` not exempted for `/claim` itself, `/api/profiles`, or auth routes — causes infinite redirect loop | Added explicit `PROFILE_CHECK_EXEMPT` set + `/api/*` prefix check |
+| 7 | MEDIUM | Implementation plan step 1 still said "seed existing users" as part of migration 005, contradicting the env-specific seed decision | Split into step 1 (schema migration) and step 2 (manual seed script) |
+| 8 | LOW | Create-path collision snippet included `.neq('id', id)` — misleading since create has no existing id | Removed `.neq('id', id)` from POST example, kept it for PUT |
 
 ---
 
