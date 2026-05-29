@@ -481,10 +481,10 @@ export default function Page() {
 
       {/* ── Content ────────────────────────────────────────────────────── */}
       {tab === 'perform' && (
-        <PerformTab setlist={config.setlist} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} />
+        <PerformTab setlist={config.setlist} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} owner={owner} />
       )}
       {tab === 'mix' && (
-        <MixTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
+        <MixTab band={band} setlist={config.setlist} printSections={printSections} showInfo={config.showInfo} isOffline={isOffline} accessToken={googleToken?.access_token} slug={slug} owner={owner} onReorder={(from, to) => updateConfig((p) => ({ ...p, setlist: moveSetlistSong(p.setlist, from, to) }))} />
       )}
       {tab === 'config' && (
         <ConfigTab config={config} updateConfig={updateConfig} googleToken={googleToken} googleError={googleError} onDisconnectGoogle={() => { clearGoogleToken(); setGoogleToken(null); }} showId={showId} isOwner={isOwner} />
@@ -552,15 +552,16 @@ export default function Page() {
 // PERFORM TAB — musician's gig-day view
 // ════════════════════════════════════════════════════════════════════════════
 
-function PerformTab({ setlist, showInfo, isOffline, accessToken, slug }: {
+function PerformTab({ setlist, showInfo, isOffline, accessToken, slug, owner }: {
   setlist: SetlistSong[];
   showInfo: { bandName: string; eventDate: string; venue: string; showName?: string };
   isOffline: boolean;
   accessToken?: string;
   slug: string;
+  owner: string;
 }) {
-  // Role filter (per-show, slug-scoped)
-  const roleKey = `showrunr-role-filter-${slug}`;
+  // Role filter (per-show, owner-scoped to avoid cross-owner collisions)
+  const roleKey = `showrunr-role-filter-${owner}/${slug}`;
   const [roleFilter, setRoleFilter] = useState<string>(() => {
     if (typeof window === 'undefined') return 'all';
     return sessionStorage.getItem(roleKey) ?? 'all';
@@ -886,7 +887,7 @@ function DraggableStagePlotView({ stagePlot, onMove }: { stagePlot: StageSlot[];
   );
 }
 
-function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken, slug, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; slug: string; onReorder: (from: number, to: number) => void }) {
+function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken, slug, owner, onReorder }: { band: BandConfig; setlist: SetlistSong[]; printSections: Record<string, boolean>; showInfo: { bandName: string; eventDate: string; venue: string; showName?: string }; isOffline: boolean; accessToken?: string; slug: string; owner: string; onReorder: (from: number, to: number) => void }) {
   const colorMap = new Map<string, string>();
   if (band.setlist?.length) {
     band.setlist.forEach((s) => {
@@ -897,7 +898,7 @@ function MixTab({ band, setlist, printSections, showInfo, isOffline, accessToken
 
   // Navigator state
   const [navigatorSongIdx, setNavigatorSongIdx] = useState<number | null>(null);
-  const roleKey = `showrunr-role-filter-${slug}`;
+  const roleKey = `showrunr-role-filter-${owner}/${slug}`;
   const [roleFilter, setRoleFilter] = useState<string>(() => {
     if (typeof window === 'undefined') return 'all';
     return sessionStorage.getItem(roleKey) ?? 'all';
