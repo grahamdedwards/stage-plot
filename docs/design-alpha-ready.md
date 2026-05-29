@@ -104,7 +104,7 @@ const skipProfileCheck =
 ```
    - Heading: "Claim your RunR"
    - Subheading: "Pick a handle for your ShowRunr URL"
-   - Input: `showrunr.com/` + [text field] (or `showrunr.ai/` for now)
+   - Input: `showrunr.ai/` + [text field]
    - Validation: lowercase, alphanumeric + hyphens, 3-30 chars, not in blocklist, not taken
    - Optional: display name field
    - Submit -> insert into profiles -> redirect to `/dashboard`
@@ -356,12 +356,12 @@ Add a small "Add to Home Screen" prompt on Perform tab for eligible browsers:
 1. Migration 005: profiles table + shows constraint change (schema only, no seed data)
 2. Manual step: run `supabase/seeds/seed_profiles.sql` per environment
 3. `POST /api/profiles` endpoint (claim handle)
-3. `app/claim/page.tsx` onboarding page
-4. Move `app/[slug]/page.tsx` -> `app/[owner]/[show]/page.tsx`
-5. New `app/api/shows/[owner]/[show]/route.ts`
-6. Middleware: legacy slug redirect + profile check
-7. Dashboard: update links to `/{owner}/{show}` format
-8. `use-show.ts`: update replaceState path
+4. `app/claim/page.tsx` onboarding page
+5. Move `app/[slug]/page.tsx` -> `app/[owner]/[show]/page.tsx`
+6. New `app/api/shows/[owner]/[show]/route.ts`
+7. Middleware: legacy slug redirect + profile check
+8. Dashboard: update links to `/{owner}/{show}` format
+9. `use-show.ts`: update replaceState path
 9. Update slug collision checks to per-owner scope
 
 ### Phase 2: Offline PWA (PR B)
