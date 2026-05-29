@@ -1,4 +1,6 @@
-# Alpha-Ready: Owner Namespacing + Offline PWA — Design Spec v1.0
+# Alpha-Ready: Owner Namespacing + Offline PWA — Design Spec v1.1
+
+> v1.1 changelog: Addressed 5 Codex review findings (see Appendix A).
 
 ## Goals
 
@@ -58,17 +60,22 @@ ALTER TABLE shows DROP CONSTRAINT shows_slug_key;
 ALTER TABLE shows ADD CONSTRAINT shows_owner_slug_unique UNIQUE(owner_id, slug);
 ```
 
-#### Seed existing users
+#### Seed existing users (env-specific, NOT part of migration)
+
+Seeding is a **manual, env-specific script** — not part of the numbered migration files.
+Migrations must be reproducible across branch DBs and staging resets. The seed script
+lives at `supabase/seeds/seed_profiles.sql` and is run once manually per environment.
 
 ```sql
--- Two known accounts. Slugs derived from their show contexts.
+-- supabase/seeds/seed_profiles.sql
+-- Run manually after migration 005. Replace UUIDs with values from your Supabase auth dashboard.
+-- Production UUIDs are documented in 1Password / team vault, NOT checked into code.
+
 INSERT INTO profiles (id, owner_slug, display_name) VALUES
-  ('5f8e...', 'graham', 'Graham'),           -- primary account
-  ('08df...', 'fernando', 'Fernando')         -- stale/secondary
+  ('<primary-user-uuid>', 'graham', 'Graham'),
+  ('<secondary-user-uuid>', 'fernando', 'Fernando')
 ON CONFLICT (id) DO NOTHING;
 ```
-
-(Exact UUIDs from Supabase auth dashboard.)
 
 ### "Claim Your RunR" Onboarding
 
@@ -99,12 +106,29 @@ ON CONFLICT (id) DO NOTHING;
 - Then resolve show by (owner_id, slug) pair
 - Returns same payload as current `/api/shows/[slug]`
 
-#### Backwards-compat redirect: `middleware.ts`
-- Single-segment paths (e.g., `/woof-camp-afterglow-sleazzy-top`) that aren't in the blocklist:
-  - Lookup show by global slug (query shows table)
-  - If found, lookup owner's profile -> redirect 301 to `/{owner_slug}/{show_slug}`
-  - If not found, 404
-- This handles any shared links from the current URL scheme
+#### Backwards-compat redirect: hardcoded legacy map
+
+**Problem (Codex finding #1):** Once global slug uniqueness is dropped, a middleware
+query for "slug = X" across all owners is ambiguous. The middleware also uses the
+anon-key server client, while anonymous slug resolution is intentionally isolated
+behind the admin-client API route — mixing these would break the security boundary.
+
+**Solution:** Since only 3 shows exist pre-migration, use a hardcoded redirect map
+in middleware instead of a DB query. Zero ambiguity, zero auth boundary violations.
+
+```typescript
+// middleware.ts — legacy redirect map (frozen at migration time)
+const LEGACY_REDIRECTS: Record<string, string> = {
+  'woof-camp-afterglow-sleazzy-top': '/graham/woof-camp-afterglow-sleazzy-top',
+  'nicholson-ranch':                 '/graham/nicholson-ranch',
+  'fernandos-party':                 '/fernando/fernandos-party',
+};
+```
+
+- Single-segment paths matching the map -> 301 redirect to namespaced URL
+- Single-segment paths NOT in map and NOT in blocklist -> 404
+- Map is frozen — no new entries. All future shows are created under `/{owner}/{show}`
+- No DB query in middleware for legacy resolution
 
 #### Dashboard link updates
 - Show cards link to `/{owner_slug}/{show_slug}` instead of `/{slug}`
@@ -116,11 +140,20 @@ ON CONFLICT (id) DO NOTHING;
 
 ### Slug collision handling
 
-Show slugs are now unique per-owner (not globally). Two different users can both have `/friday-night`. The collision check in `POST /api/shows` and `PUT /api/shows/update` changes from global to per-owner:
+Show slugs are now unique per-owner (not globally). Two different users can both have `/friday-night`. The collision check in `POST /api/shows` and `PUT /api/shows/update` changes from global to per-owner.
 
-```sql
--- Before: .eq('slug', slug).neq('id', id)
--- After:  .eq('slug', slug).eq('owner_id', user.id).neq('id', id)
+**Important (Codex finding #2):** Editors can update shows they don't own (via RLS
+`is_show_collaborator` policy). The collision scope must always be `show.owner_id`,
+NOT `auth.uid()` — otherwise an editor's collision check would search the wrong
+owner's namespace.
+
+```typescript
+// POST /api/shows (create) — caller is always the owner
+.eq('slug', slug).eq('owner_id', user.id).neq('id', id)
+
+// PUT /api/shows/update (rename) — must resolve owner from the show, not the session
+const { data: show } = await supabase.from('shows').select('owner_id').eq('id', id).single();
+.eq('slug', slug).eq('owner_id', show.owner_id).neq('id', id)
 ```
 
 ---
@@ -242,15 +275,58 @@ Add to `package.json`:
 
 ### Manifest.ts updates
 
+**Note (Codex finding #3):** `start_url` must NOT be `/dashboard` — that route
+depends on an authenticated API fetch that fails offline or with an expired session.
+Keep `start_url: '/'` and let the root page's offline-aware logic serve the
+last-viewed show from cache, or fall through to sign-in when online.
+
 ```typescript
-start_url: '/dashboard',  // was '/'
-id: '/dashboard',         // stable PWA identity
+start_url: '/',           // keep as-is (root handles offline routing)
+id: '/',                  // stable PWA identity
 ```
+
+The root page (`app/page.tsx`) gains an offline branch: if `!navigator.onLine`,
+check `localStorage` for `showrunr-last-show` (set whenever a show is opened)
+and redirect to that cached show URL. This means launching the PWA offline
+drops you straight into your last gig's Perform tab.
+
+### SW Registration (global)
+
+**Note (Codex finding #4):** Current SW registration only happens when the user
+manually downloads charts from Config tab. The install prompt and offline shell
+require the SW to be registered much earlier.
+
+**Fix:** Register the SW globally in `app/layout.tsx` via a `<script>` or
+small client component:
+
+```typescript
+// app/sw-register.tsx ('use client')
+'use client';
+import { useEffect } from 'react';
+
+export function SwRegister() {
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  }, []);
+  return null;
+}
+```
+
+Added to `layout.tsx` body. This ensures:
+- SW is active on first visit (not just chart download)
+- `beforeinstallprompt` can fire (requires active SW)
+- App shell precache happens immediately
+
+The existing `registerServiceWorker()` in `lib/chart-cache.ts` becomes a no-op
+guard (check if already registered, skip if so). No behavior change for chart
+caching — the SW handles both chart-cache and app-shell concerns.
 
 ### Install prompt
 
 Add a small "Add to Home Screen" prompt on Perform tab for eligible browsers:
-- Listen for `beforeinstallprompt` event
+- Listen for `beforeinstallprompt` event (captured globally via SwRegister)
 - Show a dismissable banner: "Install ShowRunr for offline access"
 - Store dismissal in localStorage (don't nag)
 - Only show on Perform tab (that's where musicians are at the gig)
@@ -281,9 +357,21 @@ Add a small "Add to Home Screen" prompt on Perform tab for eligible browsers:
 
 ### Migration safety
 - Only 3 shows, 2 users — low risk
-- Backwards-compat redirects ensure no broken links
-- Profile seed uses known UUIDs from Supabase dashboard
+- Backwards-compat redirects via hardcoded map (no DB query in middleware)
+- Profile seed is a separate manual script, not part of numbered migrations
 - Can run migration + deploy atomically on Vercel
+
+---
+
+## Appendix A: Codex Review Findings (v1.0 -> v1.1)
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | CRITICAL | Legacy redirect used global slug query after dropping uniqueness; also mixed anon-key client into admin-only resolution path | Replaced with hardcoded 3-entry redirect map — no DB query, no auth boundary crossing |
+| 2 | HIGH | Editor collision check scoped to `auth.uid()` instead of `show.owner_id` — wrong namespace for shows the editor doesn't own | Collision check now resolves `owner_id` from the show row, not the session |
+| 3 | HIGH | `start_url: '/dashboard'` fails offline (requires auth API fetch) | Keep `start_url: '/'`, add offline branch that redirects to last-viewed show from localStorage |
+| 4 | HIGH | SW registration only triggered on chart download — too late for install prompt and app shell precache | Global SW registration via `SwRegister` component in `layout.tsx` |
+| 5 | MEDIUM | Migration seed with hardcoded UUIDs not reproducible across environments | Seed moved to `supabase/seeds/seed_profiles.sql` (manual, env-specific), UUIDs documented in vault not code |
 
 ---
 
