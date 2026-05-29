@@ -24,4 +24,4 @@ Shows remain fully editable forever. Collaborators (or even the owner) can keep 
 ## Design Prerequisites (Codex finding #6)
 
 - Full design must include server-side enforcement (API route guards and/or Supabase RLS policies), not just UI-level freeze.
-- Without backend enforcement, UI-only freeze can be bypassed via existing write routes (`PUT /api/shows/[owner]/[show]`).
+- Without backend enforcement, UI-only freeze can be bypassed via existing write routes (`PUT /api/shows/update`).
