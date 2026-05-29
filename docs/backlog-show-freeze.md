@@ -19,4 +19,9 @@ Shows remain fully editable forever. Collaborators (or even the owner) can keep 
 - Grace period after show date? (e.g., 24-48 hours for post-show corrections)
 - What about shows with no date set? (Treat as always editable until a date is added?)
 - Does the owner get an "unfreeze" override, or is duplication the only path?
-- Interaction with free trial show count — does duplicating a frozen show count as a new show? (Probably yes)
+- Interaction with free trial show count — does duplicating a frozen show count as a new show? (Yes — confirmed in payments spec v1.1)
+
+## Design Prerequisites (Codex finding #6)
+
+- Full design must include server-side enforcement (API route guards and/or Supabase RLS policies), not just UI-level freeze.
+- Without backend enforcement, UI-only freeze can be bypassed via existing write routes (`PUT /api/shows/[owner]/[show]`).

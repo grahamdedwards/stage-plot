@@ -14,6 +14,12 @@ Currently zero visibility or management of songs and charts outside individual s
 - Search and filter by title, key, chart status
 - Chart management: upload, replace, and delete charts from the library view
 
+## Design Prerequisites (Codex finding #5)
+
+- Current model stores charts by `song_key` (title normalization) in `chart_library`, resolved from show JSON titles. There is no canonical `songs` table with stable IDs.
+- Full design must define a first-class `songs` table with `song_id` ownership, and a migration strategy from title-based resolution to ID-based references.
+- This is a prerequisite before building the library manager — cannot do proper CRUD without a canonical song entity.
+
 ## Notes
 
 - Charts are per-song (not per-show), as songs can be reused across shows — the library is the natural home for chart management
