@@ -652,12 +652,12 @@ function PerformTab({ setlist, showInfo, isOffline, accessToken, slug, owner }: 
                   </span>
                   <div className="flex-1 min-w-0">
                     <span className="font-bold text-lg leading-tight">{song.title}</span>
+                    {song.key && (
+                      <span className="ml-2 text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-bold border border-zinc-700 align-middle">
+                        {song.key}
+                      </span>
+                    )}
                   </div>
-                  {song.key && (
-                    <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-bold border border-zinc-700 flex-shrink-0">
-                      {song.key}
-                    </span>
-                  )}
                   {songCharts.length > 0 && (
                     <button
                       onClick={() => setNavigatorSongIdx(idx)}
